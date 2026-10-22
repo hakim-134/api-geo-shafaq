@@ -1,0 +1,13 @@
+# Copy to .envrc (gitignored) and run `direnv allow`. Defaults in internal/config fit local runs;
+# set only what differs. Never put real secrets in the example.
+export DATABASE_URL=postgres://shafaq:shafaq@127.0.0.1:5433/shafaq?sslmode=disable
+export VALKEY_URL=redis://127.0.0.1:6380/0
+export TEST_DATABASE_URL=$DATABASE_URL
+export WEB_ORIGINS=http://localhost:*,http://127.0.0.1:*
+export PUBLIC_URL=http://localhost:8131
+# demo first: development never spends the free Yandex key's ~100 views a day
+export PROVIDERS=demo,yandex
+export YANDEX_DAILY_LIMIT=100
+# export MAPILLARY_TOKEN=          # for `shafaq-tools mapillary-audit`
+# export TELEGRAM_ALERT_TOKEN=     # bot that warns the owner at 80% of the Yandex limit
+# export TELEGRAM_ALERT_CHAT=

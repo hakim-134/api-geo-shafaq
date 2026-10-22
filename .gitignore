@@ -1,3 +1,6 @@
-/api-geo-shafaq
+/shafaq-*
 *.test
 *.out
+.envrc
+.env
+/data/osm/

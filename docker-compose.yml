@@ -1,0 +1,90 @@
+# The whole stack, locally and on the server.
+#
+#   docker compose up -d db valkey          # just the data, run the Go code with `make run`
+#   docker compose up -d --build            # everything, as on the server
+#
+# Ports are on 127.0.0.1 only; on the server Caddy/nginx sits in front of the API.
+# Settings come from the environment (.envrc via direnv, or a .env file next to this one).
+
+name: shafaq-geo
+
+services:
+  db:
+    image: postgis/postgis:17-3.5
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: shafaq
+      POSTGRES_USER: shafaq
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-shafaq}
+    ports: ["127.0.0.1:${DB_PORT:-5433}:5432"]
+    volumes: [db:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U shafaq -d shafaq"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  valkey:
+    image: valkey/valkey:8-alpine
+    restart: unless-stopped
+    command: ["valkey-server", "--save", "60", "1", "--appendonly", "no"]
+    ports: ["127.0.0.1:${VALKEY_PORT:-6380}:6379"]
+    volumes: [valkey:/data]
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  # Runs the migrations once, then exits; the API and the worker wait for it.
+  migrate:
+    build: .
+    command: ["shafaq-tools", "migrate"]
+    environment: &env
+      DATABASE_URL: postgres://shafaq:${DB_PASSWORD:-shafaq}@db:5432/shafaq?sslmode=disable
+      VALKEY_URL: redis://valkey:6379/0
+      WEB_ORIGINS: ${WEB_ORIGINS:-https://geo.shafaq.uz}
+      PUBLIC_URL: ${PUBLIC_URL:-https://api.geo.shafaq.uz}
+      TRUST_PROXY: ${TRUST_PROXY:-true}
+      COOKIE_SECURE: ${COOKIE_SECURE:-true}
+      COOKIE_DOMAIN: ${COOKIE_DOMAIN:-}
+      PROVIDERS: ${PROVIDERS:-yandex}
+      DEMO_SECRET: ${DEMO_SECRET:-}
+      YANDEX_DAILY_LIMIT: ${YANDEX_DAILY_LIMIT:-100}
+      MAPILLARY_TOKEN: ${MAPILLARY_TOKEN:-}
+      TELEGRAM_ALERT_TOKEN: ${TELEGRAM_ALERT_TOKEN:-}
+      TELEGRAM_ALERT_CHAT: ${TELEGRAM_ALERT_CHAT:-}
+      LOG_FORMAT: json
+    depends_on:
+      db: { condition: service_healthy }
+
+  api:
+    build: .
+    restart: unless-stopped
+    command: ["shafaq-api"]
+    environment:
+      <<: *env
+      ADDR: :8131
+      METRICS_ADDR: :9131
+    ports: ["127.0.0.1:${API_PORT:-8131}:8131"]
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+      valkey: { condition: service_healthy }
+
+  worker:
+    build: .
+    restart: unless-stopped
+    command: ["shafaq-worker"]
+    environment:
+      <<: *env
+      METRICS_ADDR: :9132
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:9132/metrics"]
+      interval: 30s
+      timeout: 3s
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+
+volumes:
+  db:
+  valkey:

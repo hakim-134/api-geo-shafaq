@@ -1,0 +1,70 @@
+// Package metrics defines the Prometheus metrics. They are served on a separate,
+// private address (METRICS_ADDR), never on the public API port.
+package metrics
+
+import (
+	"context"
+	"errors"
+	"log/slog"
+	"net/http"
+	"time"
+
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/collectors"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
+)
+
+var (
+	Registry = prometheus.NewRegistry()
+
+	HTTPRequests = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "shafaq_http_requests_total", Help: "API requests by route and status code.",
+	}, []string{"route", "code"})
+	HTTPDuration = prometheus.NewHistogramVec(prometheus.HistogramOpts{
+		Name: "shafaq_http_request_seconds", Help: "API request latency by route.",
+		Buckets: []float64{.005, .01, .025, .05, .1, .2, .5, 1, 2.5},
+	}, []string{"route"})
+	PanoramaViews = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "shafaq_panorama_views_total", Help: "Panoramas handed to viewers, by provider.",
+	}, []string{"provider"})
+	PanoramaViewsToday = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Name: "shafaq_panorama_views_today", Help: "Panoramas handed to viewers today (Tashkent time), by provider.",
+	}, []string{"provider"})
+	GamesStarted = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "shafaq_games_started_total", Help: "Games started, by map.",
+	}, []string{"map"})
+	RoundsScored = prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "shafaq_rounds_scored_total", Help: "Rounds ended with a guess or without one.",
+	})
+	GuestsCreated = prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "shafaq_guests_created_total", Help: "Guest players created.",
+	})
+)
+
+func init() {
+	Registry.MustRegister(
+		collectors.NewGoCollector(),
+		collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}),
+		HTTPRequests, HTTPDuration, PanoramaViews, PanoramaViewsToday, GamesStarted, RoundsScored, GuestsCreated,
+	)
+}
+
+// Serve runs the /metrics endpoint until ctx ends. An empty addr turns it off.
+func Serve(ctx context.Context, addr string) {
+	if addr == "" {
+		return
+	}
+	mux := http.NewServeMux()
+	mux.Handle("GET /metrics", promhttp.HandlerFor(Registry, promhttp.HandlerOpts{}))
+	srv := &http.Server{Addr: addr, Handler: mux, ReadHeaderTimeout: 5 * time.Second}
+	go func() {
+		<-ctx.Done()
+		shutdown, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		_ = srv.Shutdown(shutdown)
+	}()
+	slog.Info("metrics listening", "addr", addr)
+	if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		slog.Error("metrics server", "err", err)
+	}
+}

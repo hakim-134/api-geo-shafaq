@@ -1,0 +1,9 @@
+# go tool oapi-codegen -config api/oapi-codegen.yaml api/openapi.yaml
+package: oapi
+output: internal/httpapi/oapi/oapi.gen.go
+generate:
+  std-http-server: true
+  models: true
+  embedded-spec: true
+output-options:
+  skip-prune: true

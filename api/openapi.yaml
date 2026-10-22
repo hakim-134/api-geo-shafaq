@@ -1,0 +1,671 @@
+openapi: 3.0.3
+info:
+  title: Shafaq Geo API
+  version: 1.0.0
+  description: |
+    The contract between the game (geo-shafaq) and the server (api-geo-shafaq).
+    Change this file first, then regenerate both sides: `make gen` here, `npm run gen` in
+    geo-shafaq.
+
+    Sessions are an HttpOnly cookie. Every write is JSON (`Content-Type: application/json`),
+    which, with the origin check, is the CSRF protection.
+servers:
+  - url: https://api.geo.shafaq.uz
+  - url: http://localhost:8131
+
+tags:
+  - name: system
+  - name: session
+  - name: maps
+  - name: games
+
+paths:
+  /v1/health:
+    get:
+      tags: [system]
+      operationId: getHealth
+      summary: The process is up.
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Health" }
+
+  /v1/ready:
+    get:
+      tags: [system]
+      operationId: getReady
+      summary: The database and Valkey answer.
+      responses:
+        "200":
+          description: Ready
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Health" }
+        "503":
+          description: Not ready
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Health" }
+
+  /v1/session:
+    post:
+      tags: [session]
+      operationId: startSession
+      summary: Returns the current player, creating a guest on the first visit.
+      description: |
+        Safe to call on every page load. With a valid session cookie it returns that player;
+        without one it creates a guest (an emoji name like `🐼_42`) and sets the cookie.
+      responses:
+        "200":
+          description: The player
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Me" }
+
+  /v1/me:
+    get:
+      tags: [session]
+      operationId: getMe
+      responses:
+        "200":
+          description: The player
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Me" }
+        "401": { $ref: "#/components/responses/Error" }
+
+  /v1/me/games:
+    get:
+      tags: [games]
+      operationId: listMyGames
+      summary: The player's finished games, newest first.
+      parameters:
+        - name: before
+          in: query
+          description: Cursor; the `next` value of the previous page.
+          schema: { type: string }
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 50, default: 20 }
+      responses:
+        "200":
+          description: A page of games
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/GamePage" }
+        "401": { $ref: "#/components/responses/Error" }
+
+  /v1/maps:
+    get:
+      tags: [maps]
+      operationId: listMaps
+      summary: The maps on the menu.
+      responses:
+        "200":
+          description: Maps
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/MapSummary" }
+
+  /v1/maps/{slug}:
+    get:
+      tags: [maps]
+      operationId: getMap
+      parameters:
+        - $ref: "#/components/parameters/Slug"
+      responses:
+        "200":
+          description: The map
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MapSummary" }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /v1/places/{slug}/shape:
+    get:
+      tags: [maps]
+      operationId: getPlaceShape
+      summary: A place's simplified boundary as GeoJSON, for the guess map.
+      parameters:
+        - $ref: "#/components/parameters/Slug"
+      responses:
+        "200":
+          description: The shape
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PlaceShape" }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /v1/games:
+    post:
+      tags: [games]
+      operationId: createGame
+      summary: Starts a solo game on a map.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateGame" }
+      responses:
+        "201":
+          description: The new game, before its first round
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Game" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /v1/games/{gameId}:
+    get:
+      tags: [games]
+      operationId: getGame
+      summary: A game with every finished round. Also used to resume after a reload.
+      parameters:
+        - $ref: "#/components/parameters/GameId"
+      responses:
+        "200":
+          description: The game
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Game" }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /v1/games/{gameId}/rounds:
+    post:
+      tags: [games]
+      operationId: nextRound
+      summary: Starts the next round. The server picks the panorama.
+      description: |
+        Returns the round that is already running, if there is one, so a reload or a double
+        tap does not skip a round.
+      parameters:
+        - $ref: "#/components/parameters/GameId"
+      responses:
+        "200":
+          description: The round
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Round" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+
+  /v1/games/{gameId}/rounds/{n}/shown:
+    post:
+      tags: [games]
+      operationId: roundShown
+      summary: The panorama is on screen; the round's clock starts now.
+      description: |
+        For providers that search near a point (Yandex), `pos` is the panorama the viewer
+        actually opened. It must be close to the point the server chose; the round is then
+        scored against it. A second call returns the round unchanged.
+      parameters:
+        - $ref: "#/components/parameters/GameId"
+        - $ref: "#/components/parameters/RoundN"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RoundShown" }
+      responses:
+        "200":
+          description: The round, with its deadline
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Round" }
+        "400": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
+  /v1/games/{gameId}/rounds/{n}/fail:
+    post:
+      tags: [games]
+      operationId: roundFailed
+      summary: The viewer could not open this panorama; the server picks another for the same round.
+      description: |
+        Only before the round is shown, at most 5 times a round. `not_found` (the provider
+        has no panorama there any more) counts against the panorama; after 3 it is retired.
+      parameters:
+        - $ref: "#/components/parameters/GameId"
+        - $ref: "#/components/parameters/RoundN"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RoundFailed" }
+      responses:
+        "200":
+          description: The round with a new panorama
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Round" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+
+  /v1/games/{gameId}/rounds/{n}/hint:
+    post:
+      tags: [games]
+      operationId: useHint
+      summary: Spends one hint of this round.
+      parameters:
+        - $ref: "#/components/parameters/GameId"
+        - $ref: "#/components/parameters/RoundN"
+      responses:
+        "200":
+          description: The hint
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Hint" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
+  /v1/games/{gameId}/rounds/{n}/guess:
+    post:
+      tags: [games]
+      operationId: guess
+      summary: Ends the round with a guess (or none), scored by the server.
+      parameters:
+        - $ref: "#/components/parameters/GameId"
+        - $ref: "#/components/parameters/RoundN"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/GuessRequest" }
+      responses:
+        "200":
+          description: The round's result
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RoundResult" }
+        "400": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
+  /v1/pano/demo/{ref}:
+    get:
+      tags: [games]
+      operationId: getDemoPanorama
+      summary: The drawn test panorama of the `demo` provider (a JPEG).
+      parameters:
+        - name: ref
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: An equirectangular JPEG image
+          content:
+            image/jpeg:
+              schema: { type: string }
+        "404": { $ref: "#/components/responses/Error" }
+
+components:
+  parameters:
+    Slug:
+      name: slug
+      in: path
+      required: true
+      schema: { type: string }
+    GameId:
+      name: gameId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    RoundN:
+      name: "n"
+      in: path
+      required: true
+      schema: { type: integer, minimum: 1 }
+
+  responses:
+    Error:
+      description: An error. `code` is stable and the game translates it.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+
+  schemas:
+    Error:
+      type: object
+      required: [code]
+      properties:
+        code:
+          type: string
+          description: |
+            no_session | not_found | bad_input | wrong_phase | round_running | game_over |
+            no_panorama | too_far | rate_limited | internal
+        message: { type: string }
+
+    Health:
+      type: object
+      required: [ok]
+      properties:
+        ok: { type: boolean }
+        version: { type: string }
+        checks:
+          type: object
+          additionalProperties: { type: string }
+
+    Text:
+      description: A name in the three languages. `ru` and `en` fall back to `uz` (street signs are in Uzbek Latin).
+      type: object
+      required: [uz, ru, en]
+      properties:
+        uz: { type: string }
+        ru: { type: string }
+        en: { type: string }
+
+    LatLon:
+      type: object
+      required: [lat, lon]
+      properties:
+        lat: { type: number, format: double, minimum: -90, maximum: 90 }
+        lon: { type: number, format: double, minimum: -180, maximum: 180 }
+
+    User:
+      type: object
+      required: [id, name, avatar, guest]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string, example: "🐼_42" }
+        avatar: { type: string, description: "An emoji from the curated list", example: "🐼" }
+        guest: { type: boolean }
+
+    Stats:
+      type: object
+      required: [games, best, avgRound]
+      properties:
+        games: { type: integer }
+        best: { type: integer }
+        avgRound: { type: integer }
+
+    Me:
+      type: object
+      required: [user, stats]
+      properties:
+        user: { $ref: "#/components/schemas/User" }
+        stats: { $ref: "#/components/schemas/Stats" }
+
+    Movement:
+      type: string
+      enum: [move, nomove, nmpz]
+      description: move = walk freely; nomove = look around only; nmpz = no move, no pan, no zoom.
+
+    HintRule:
+      type: object
+      required: [count, per, cost]
+      properties:
+        count:
+          type: integer
+          minimum: 0
+          maximum: 20
+          description: How many hints; 0 = no Hint button.
+        per:
+          type: string
+          enum: [game, round]
+        cost:
+          type: number
+          format: double
+          minimum: 0
+          maximum: 1
+          description: Share of the round score each hint takes (0.2 = −20%).
+
+    Rules:
+      description: One set of rules for solo games, rooms and challenges.
+      type: object
+      required: [rounds, timeSec, movement, hints, compass, providers, scoreScale, panoLabels, mapLabels]
+      properties:
+        rounds: { type: integer, minimum: 1, maximum: 20 }
+        timeSec:
+          type: integer
+          minimum: 0
+          maximum: 600
+          description: Seconds per round; 0 = no limit, otherwise at least 10.
+        movement: { $ref: "#/components/schemas/Movement" }
+        hints: { $ref: "#/components/schemas/HintRule" }
+        compass: { type: boolean }
+        providers:
+          type: array
+          description: Allowed panorama providers; empty = any provider that covers the place.
+          items: { type: string }
+        scoreScale:
+          type: number
+          format: double
+          minimum: 0.25
+          maximum: 4
+          description: Stretches the map's scoring distance; 2 = forgiving, 0.6 = strict.
+        panoLabels:
+          type: boolean
+          description: House numbers and place labels inside the panorama.
+        mapLabels:
+          type: boolean
+          description: City and metro names on the guess map.
+
+    MapSummary:
+      type: object
+      required: [slug, name, description, official, panoramas, groups, bbox, sizeKm, rules, providers]
+      properties:
+        slug: { type: string, example: tashkent-streets }
+        name: { $ref: "#/components/schemas/Text" }
+        description: { $ref: "#/components/schemas/Text" }
+        official: { type: boolean }
+        panoramas: { type: integer, description: Active panoramas in the map. }
+        groups:
+          type: integer
+          description: Streets (on a street map) or places the panoramas are grouped by.
+        streets:
+          type: boolean
+          description: A street map; `groups` counts streets, and progress counts streets seen.
+        seen:
+          type: integer
+          description: Streets this player has already been on (street maps only).
+        bbox:
+          type: array
+          description: "[west, south, east, north]"
+          minItems: 4
+          maxItems: 4
+          items: { type: number, format: double }
+        sizeKm: { type: number, format: double, description: The map's size D for scoring. }
+        rules: { $ref: "#/components/schemas/Rules" }
+        providers:
+          type: array
+          description: Providers with panoramas in this map.
+          items: { type: string }
+        outline:
+          type: string
+          description: The place's outline as a small SVG (maps of one place only).
+
+    PlaceShape:
+      type: object
+      required: [slug, geometry, outline]
+      properties:
+        slug: { type: string }
+        geometry:
+          type: object
+          description: GeoJSON (Multi)Polygon, simplified.
+          additionalProperties: true
+        outline: { type: string, description: The same shape as a small SVG. }
+
+    CreateGame:
+      type: object
+      required: [map]
+      properties:
+        map: { type: string, description: The map's slug. }
+        rules: { $ref: "#/components/schemas/Rules" }
+
+    GameStatus:
+      type: string
+      enum: [playing, finished, abandoned]
+
+    Game:
+      type: object
+      required: [id, map, rules, status, startedAt, total, max, rounds]
+      properties:
+        id: { type: string, format: uuid }
+        map: { $ref: "#/components/schemas/MapSummary" }
+        rules: { $ref: "#/components/schemas/Rules" }
+        status: { $ref: "#/components/schemas/GameStatus" }
+        startedAt: { type: string, format: date-time }
+        finishedAt: { type: string, format: date-time }
+        total: { type: integer }
+        max: { type: integer }
+        hintsLeft:
+          type: integer
+          description: Hints left in the game (per-game hint rules only).
+        rounds:
+          type: array
+          description: Every round so far; the last one may still be running.
+          items: { $ref: "#/components/schemas/Round" }
+
+    GamePage:
+      type: object
+      required: [games]
+      properties:
+        games:
+          type: array
+          items: { $ref: "#/components/schemas/GameListItem" }
+        next: { type: string }
+
+    GameListItem:
+      type: object
+      required: [id, map, status, startedAt, total, max, rounds]
+      properties:
+        id: { type: string, format: uuid }
+        map: { $ref: "#/components/schemas/MapRef" }
+        status: { $ref: "#/components/schemas/GameStatus" }
+        startedAt: { type: string, format: date-time }
+        finishedAt: { type: string, format: date-time }
+        total: { type: integer }
+        max: { type: integer }
+        rounds: { type: integer }
+
+    MapRef:
+      type: object
+      required: [slug, name]
+      properties:
+        slug: { type: string }
+        name: { $ref: "#/components/schemas/Text" }
+
+    Round:
+      type: object
+      required: [n, view, hintsUsed, hintsLeft]
+      properties:
+        "n": { type: integer }
+        view: { $ref: "#/components/schemas/PanoView" }
+        shownAt: { type: string, format: date-time }
+        deadline:
+          type: string
+          format: date-time
+          description: When the round ends; absent without a time limit or before it is shown.
+        remainingMs:
+          type: integer
+          description: Milliseconds left at the moment of the answer, so the clock does not depend on the phone's time.
+        hintsUsed: { type: integer }
+        hintsLeft: { type: integer }
+        hints:
+          type: array
+          items: { $ref: "#/components/schemas/Hint" }
+        result: { $ref: "#/components/schemas/RoundResult" }
+
+    PanoView:
+      description: What the browser's viewer needs for this round, and nothing more.
+      type: object
+      required: [provider]
+      properties:
+        provider: { type: string, example: yandex }
+        near:
+          $ref: "#/components/schemas/LatLon"
+        snapKm:
+          type: number
+          format: double
+          description: With `near`, how far the opened panorama may be from it.
+        ref:
+          type: string
+          description: The provider's panorama id, or an opaque reference (demo, own imagery).
+        imageUrl:
+          type: string
+          description: An image the viewer can open directly (demo, own imagery).
+        heading:
+          type: number
+          format: double
+          description: Where to look first, degrees from north.
+
+    RoundShown:
+      type: object
+      properties:
+        pos:
+          $ref: "#/components/schemas/LatLon"
+
+    RoundFailed:
+      type: object
+      required: [reason]
+      properties:
+        reason:
+          type: string
+          enum: [not_found, error]
+
+    GuessRequest:
+      type: object
+      properties:
+        pos:
+          $ref: "#/components/schemas/LatLon"
+
+    Hint:
+      type: object
+      required: [kind, text, circle]
+      properties:
+        kind:
+          type: string
+          enum: [district, region]
+        text:
+          $ref: "#/components/schemas/Text"
+        circle:
+          $ref: "#/components/schemas/Circle"
+
+    Circle:
+      type: object
+      required: [center, radiusKm]
+      properties:
+        center: { $ref: "#/components/schemas/LatLon" }
+        radiusKm: { type: number, format: double }
+
+    RoundResult:
+      type: object
+      required: [actual, score, hintsUsed, late, place]
+      properties:
+        actual: { $ref: "#/components/schemas/LatLon" }
+        guess: { $ref: "#/components/schemas/LatLon" }
+        km: { type: number, format: double }
+        score: { type: integer }
+        hintsUsed: { type: integer }
+        late:
+          type: boolean
+          description: The guess came after the deadline and scored 0.
+        place: { $ref: "#/components/schemas/PlaceInfo" }
+        gameOver: { type: boolean, description: This was the last round. }
+        total: { type: integer, description: The game's total after this round. }
+
+    PlaceInfo:
+      description: '"You were here": what the round teaches.'
+      type: object
+      properties:
+        street: { $ref: "#/components/schemas/Text" }
+        district: { $ref: "#/components/schemas/Text" }
+        city: { $ref: "#/components/schemas/Text" }
+        region: { $ref: "#/components/schemas/Text" }
+        metro:
+          $ref: "#/components/schemas/Metro"
+
+    Metro:
+      type: object
+      required: [name, km]
+      properties:
+        name: { $ref: "#/components/schemas/Text" }
+        km: { type: number, format: double }

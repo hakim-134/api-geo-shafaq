@@ -1,3 +1,6 @@
 .git
+_v0
 *.md
-*_test.go
+**/*_test.go
+.envrc
+.env
