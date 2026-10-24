@@ -70,7 +70,8 @@ panorama that fails three times is retired.
 
 The free key allows about 100 panorama views a day and no paid products; going over again and
 again gets the key blocked for good. Two counts, one warning a day at 80% (in the log, and on
-Telegram if `TELEGRAM_ALERT_TOKEN`/`_CHAT` are set):
+Telegram if `TELEGRAM_ALERT_TOKEN`/`_CHAT` are set; to find the chat ID, write to the bot
+while the worker runs, or send `/id` in a group, and it answers with the ID):
 
 - **Ours**: every round handed out (`provider_usage`, the `shafaq_panorama_views_today` metric).
 - **Yandex's own**, which is the one that decides a block (free terms §4.3): the worker reads it

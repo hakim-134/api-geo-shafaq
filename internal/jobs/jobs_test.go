@@ -109,3 +109,42 @@ type failing struct{}
 func (failing) RoundTrip(*http.Request) (*http.Response, error) {
 	return nil, errors.New("connection refused")
 }
+
+func TestWhoAmIAnswersWithChatID(t *testing.T) {
+	replies := make(chan string, 1)
+	polls := 0
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /bott/getUpdates", func(w http.ResponseWriter, r *http.Request) {
+		polls++
+		if polls > 1 {
+			w.Write([]byte(`{"ok":true,"result":[]}`))
+			return
+		}
+		w.Write([]byte(`{"ok":true,"result":[{"update_id":7,"message":{"chat":{"id":-100123,"type":"supergroup","title":"Shafaq <alerts>"},` +
+			`"from":{"id":42,"first_name":"Ali","username":"ali"}}}]}`))
+	})
+	mux.HandleFunc("POST /bott/sendMessage", func(w http.ResponseWriter, r *http.Request) {
+		r.ParseForm()
+		if r.Form.Get("chat_id") != "-100123" {
+			t.Errorf("replied to chat %q", r.Form.Get("chat_id"))
+		}
+		replies <- r.Form.Get("text")
+		w.Write([]byte(`{"ok":true,"result":{}}`))
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go Telegram{Token: "t", Base: srv.URL, Client: srv.Client()}.WhoAmI(ctx)
+	select {
+	case text := <-replies:
+		for _, want := range []string{"<code>-100123</code>", "Shafaq &lt;alerts&gt;", "<code>42</code>", "TELEGRAM_ALERT_CHAT=-100123"} {
+			if !strings.Contains(text, want) {
+				t.Errorf("reply %q lacks %q", text, want)
+			}
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("no reply")
+	}
+}

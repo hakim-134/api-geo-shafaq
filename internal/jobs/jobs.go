@@ -3,6 +3,7 @@ package jobs
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -134,6 +135,7 @@ type Alerter interface {
 // log every warning anyway.
 type Telegram struct {
 	Token, Chat string
+	Base        string // "" = https://api.telegram.org; tests point it at a fake
 	Client      *http.Client
 }
 
@@ -141,9 +143,17 @@ func (a Telegram) Send(ctx context.Context, text string) error {
 	if a.Token == "" || a.Chat == "" {
 		return nil
 	}
-	form := url.Values{"chat_id": {a.Chat}, "text": {text}}
+	return a.call(ctx, "sendMessage", url.Values{"chat_id": {a.Chat}, "text": {text}}, nil)
+}
+
+// call posts one Bot API method and decodes its result into out (nil = ignore it).
+func (a Telegram) call(ctx context.Context, method string, form url.Values, out any) error {
+	base := a.Base
+	if base == "" {
+		base = "https://api.telegram.org"
+	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
-		"https://api.telegram.org/bot"+a.Token+"/sendMessage", strings.NewReader(form.Encode()))
+		base+"/bot"+a.Token+"/"+method, strings.NewReader(form.Encode()))
 	if err != nil {
 		return err
 	}
@@ -155,13 +165,22 @@ func (a Telegram) Send(ctx context.Context, text string) error {
 		if errors.As(err, &ue) {
 			err = ue.Err
 		}
-		return fmt.Errorf("telegram: %w", err)
+		return fmt.Errorf("telegram %s: %w", method, err)
 	}
 	defer res.Body.Close()
 	if res.StatusCode != http.StatusOK {
-		return fmt.Errorf("telegram: %s", res.Status)
+		return fmt.Errorf("telegram %s: %s", method, res.Status)
 	}
-	return nil
+	if out == nil {
+		return nil
+	}
+	var body struct {
+		Result json.RawMessage `json:"result"`
+	}
+	if err := json.NewDecoder(res.Body).Decode(&body); err != nil {
+		return fmt.Errorf("telegram %s: %w", method, err)
+	}
+	return json.Unmarshal(body.Result, out)
 }
 
 // NewClient builds the River client with the workers and their schedules.

@@ -1,10 +1,12 @@
 // Command shafaq-worker runs the background jobs (River): the Yandex usage warnings and the
-// cleanup. One is enough; River makes sure each job runs once even with more.
+// cleanup. One is enough; River makes sure each job runs once even with more. It also has
+// the Telegram bot answer messages with the chat's ID (jobs.Telegram.WhoAmI).
 package main
 
 import (
 	"context"
 	"log/slog"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
@@ -43,6 +45,8 @@ func run() error {
 		return err
 	}
 	go metrics.Serve(ctx, cfg.MetricsAddr)
+	// the bot answers any message with the chat's ID: how the owner finds TELEGRAM_ALERT_CHAT
+	go jobs.Telegram{Token: cfg.TelegramAlertToken, Client: &http.Client{Timeout: time.Minute}}.WhoAmI(ctx)
 	if err := client.Start(ctx); err != nil {
 		return err
 	}
