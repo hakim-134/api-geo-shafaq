@@ -1,0 +1,111 @@
+package jobs
+
+import (
+	"context"
+	"errors"
+	"net/http"
+	"net/http/httptest"
+	"strconv"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/hakim-134/api-geo-shafaq/internal/provider"
+	"github.com/hakim-134/api-geo-shafaq/internal/store"
+	"github.com/hakim-134/api-geo-shafaq/internal/testdb"
+)
+
+type sent []string
+
+func (s *sent) Send(_ context.Context, text string) error {
+	*s = append(*s, text)
+	return nil
+}
+
+// cabinet answers like Yandex's Developer's Account API, with used of 100 requests today.
+func cabinet(t *testing.T, used *int) provider.YandexCabinet {
+	t.Helper()
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /projects", func(w http.ResponseWriter, _ *http.Request) {
+		w.Write([]byte(`{"projects":[{"id":"p1"}]}`))
+	})
+	mux.HandleFunc("GET /projects/p1/services", func(w http.ResponseWriter, _ *http.Request) {
+		w.Write([]byte(`{"services":[{"id":"s1","name":"JavaScript API"}]}`))
+	})
+	mux.HandleFunc("GET /projects/p1/services/s1/limits", func(w http.ResponseWriter, _ *http.Request) {
+		w.Write([]byte(`{"limits":{"panorama_daily":{"limit":100,"value":` + strconv.Itoa(*used) + `}}}`))
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	return provider.YandexCabinet{Key: "k", Base: srv.URL, Client: srv.Client()}
+}
+
+func TestQuotaCheckWarnsOnceADay(t *testing.T) {
+	ctx := context.Background()
+	q := store.New(testdb.New(t))
+	used := 50
+	var got sent
+	quota := &QuotaCheck{Q: q, Cabinet: cabinet(t, &used), Alert: &got}
+	ours := &UsageCheck{Q: q, Limit: 100, Alert: &got}
+
+	if err := quota.Work(ctx, nil); err != nil || len(got) != 0 {
+		t.Fatalf("50 of 100: err %v, sent %q", err, got)
+	}
+	used = 85
+	for range 2 {
+		if err := quota.Work(ctx, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if len(got) != 1 || !strings.Contains(got[0], "85 of 100") {
+		t.Fatalf("85 of 100, checked twice: sent %q", got)
+	}
+
+	// our own count reaching 80% the same day says nothing more
+	for range 90 {
+		if _, err := q.CountProviderView(ctx, store.CountProviderViewParams{Day: provider.Today(time.Now()), Provider: "yandex"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := ours.Work(ctx, nil); err != nil || len(got) != 1 {
+		t.Fatalf("second warning the same day: err %v, sent %q", err, got)
+	}
+}
+
+func TestUsageCheckWarnsOnce(t *testing.T) {
+	ctx := context.Background()
+	q := store.New(testdb.New(t))
+	var got sent
+	w := &UsageCheck{Q: q, Limit: 100, Alert: &got}
+	day := store.CountProviderViewParams{Day: provider.Today(time.Now()), Provider: "yandex"}
+	for i := 1; i <= 80; i++ {
+		if _, err := q.CountProviderView(ctx, day); err != nil {
+			t.Fatal(err)
+		}
+		if i == 79 || i == 80 {
+			if err := w.Work(ctx, nil); err != nil {
+				t.Fatal(err)
+			}
+			if want := i - 79; len(got) != want {
+				t.Fatalf("after %d views: sent %d, want %d", i, len(got), want)
+			}
+		}
+	}
+	if err := w.Work(ctx, nil); err != nil || len(got) != 1 {
+		t.Fatalf("checked again: err %v, sent %q", err, got)
+	}
+}
+
+func TestTelegramErrorHidesToken(t *testing.T) {
+	tg := Telegram{Token: "secret-token", Chat: "1", Client: &http.Client{Transport: failing{}}}
+	err := tg.Send(context.Background(), "hi")
+	if err == nil || strings.Contains(err.Error(), "secret-token") {
+		t.Fatalf("error %v", err)
+	}
+}
+
+type failing struct{}
+
+func (failing) RoundTrip(*http.Request) (*http.Response, error) {
+	return nil, errors.New("connection refused")
+}

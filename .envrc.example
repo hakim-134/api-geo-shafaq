@@ -1,13 +1,16 @@
-# Copy to .envrc (gitignored) and run `direnv allow`. Defaults in internal/config fit local runs;
-# set only what differs. Never put real secrets in the example.
-export DATABASE_URL=postgres://shafaq:shafaq@127.0.0.1:5433/shafaq?sslmode=disable
-export VALKEY_URL=redis://127.0.0.1:6380/0
+# Copy to .envrc (gitignored) and run `direnv allow`. Defaults in internal/config fit local runs
+# on a shared Postgres (with PostGIS) and Redis; set only what differs. Never put real secrets in
+# the example.
+export PGPASSWORD=                 # the Postgres password; pgx takes it when the URL has none
+export DATABASE_URL=postgres://postgres@127.0.0.1:5432/shafaq_lcl?sslmode=disable
+export VALKEY_URL=redis://127.0.0.1:6379/1
 export TEST_DATABASE_URL=$DATABASE_URL
 export WEB_ORIGINS=http://localhost:*,http://127.0.0.1:*
-export PUBLIC_URL=http://localhost:8131
+# PUBLIC_URL unset: demo images are linked relative to the API, so a phone on the LAN works too
 # demo first: development never spends the free Yandex key's ~100 views a day
 export PROVIDERS=demo,yandex
 export YANDEX_DAILY_LIMIT=100
+# export YANDEX_CABINET_KEY=       # Developer's Account API key: the worker reads Yandex's own count
 # export GOOGLE_MAPS_KEY=          # for `shafaq-tools google` (free Street View metadata look-ups)
 # export TELEGRAM_ALERT_TOKEN=     # bot that warns the owner at 80% of the Yandex limit
 # export TELEGRAM_ALERT_CHAT=

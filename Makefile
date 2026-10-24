@@ -1,8 +1,12 @@
-# make up | setup | run | worker | test | gen | lint | smoke
+# make up | lcl | setup | run | worker | test | gen | lint | smoke
 OSM_PBF ?= data/osm/uzbekistan-latest.osm.pbf
 
-up:            ## Postgres + PostGIS and Valkey, in Docker
-	docker compose up -d db valkey
+up:            ## the database shafaq_lcl (PostGIS) in the shared Postgres container, once
+	docker exec postgres createdb -U postgres shafaq_lcl 2>/dev/null || true
+	docker exec postgres psql -qU postgres -d shafaq_lcl -c 'CREATE EXTENSION IF NOT EXISTS postgis'
+
+lcl:           ## the server in Docker on this machine, rebuilt from this tree (:8131)
+	docker compose -f docker-compose.lcl.yml up -d --build
 
 $(OSM_PBF):
 	mkdir -p $(dir $@)
@@ -31,4 +35,4 @@ lint:
 smoke:         ## play a demo game against the running API
 	scripts/smoke.sh
 
-.PHONY: up setup run worker test gen lint smoke
+.PHONY: up lcl setup run worker test gen lint smoke

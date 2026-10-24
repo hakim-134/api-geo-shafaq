@@ -9,15 +9,20 @@ Based on [BeloGuessr](https://github.com/NotiLo-A/BeloGuessr) by NotiLo-A. The f
 
 ## Run locally
 
-Go 1.26+, Docker.
+Go 1.26+, Docker, and a Postgres (16 or newer, with PostGIS) and a Redis (or Valkey). On the
+owner's laptop those are the machine's shared `postgres` and `redis` containers (Docker network
+`infra`); the API gets the database `shafaq_lcl` and Redis database 1.
 
 ```bash
-cp .envrc.example .envrc && direnv allow
-make up        # Postgres + PostGIS (:5433) and Valkey (:6380) in Docker
+cp .envrc.example .envrc && direnv allow    # PGPASSWORD: the Postgres password
+make up        # the database shafaq_lcl with PostGIS, in the `postgres` container
 make setup     # downloads the OSM extract, then places, the panorama library and the maps
 make run       # the API on :8131
 make smoke     # plays a whole demo game against it
 ```
+
+Or the server in Docker, rebuilt from this tree: `make lcl` (`docker-compose.lcl.yml`: one
+container, migrations at start, then the worker and the API on :8131).
 
 `make test` runs the unit tests, and the integration tests too when `TEST_DATABASE_URL` is set
 (each test gets its own throwaway database).
@@ -64,14 +69,22 @@ panorama that fails three times is retired.
 ## Yandex usage
 
 The free key allows about 100 panorama views a day and no paid products; going over again and
-again gets the key blocked for good. Every view is counted (`provider_usage`, and the
-`shafaq_panorama_views_today` metric); the worker warns at 80% (in the log, and on Telegram if
-`TELEGRAM_ALERT_TOKEN`/`_CHAT` are set). Buy the commercial license before launch.
+again gets the key blocked for good. Two counts, one warning a day at 80% (in the log, and on
+Telegram if `TELEGRAM_ALERT_TOKEN`/`_CHAT` are set):
+
+- **Ours**: every round handed out (`provider_usage`, the `shafaq_panorama_views_today` metric).
+- **Yandex's own**, which is the one that decides a block (free terms §4.3): the worker reads it
+  every 10 minutes from the Developer's Account API when `YANDEX_CABINET_KEY` is set
+  (developer.tech.yandex.ru → Connect API → Developer's Account API; metric
+  `shafaq_yandex_requests_today`). It is higher than ours: the browser also calls `locate`,
+  and every step in a Move round loads a panorama.
+
+Days run by Moscow time, as Yandex resets its limits. Buy the commercial license before launch.
 
 ## Docker
 
-`docker compose up -d --build` runs everything as on the server: `migrate` once, then `api` and
-`worker`. Settings come from the environment (`.envrc.example` lists them; secrets never go into
+`docker compose up -d --build` runs everything as on the server, its own Postgres + PostGIS and
+Valkey included: `migrate` once, then `api` and `worker`. Settings come from the environment (`.envrc.example` lists them; secrets never go into
 the repo). Prometheus metrics are on `METRICS_ADDR` (private), health on `/v1/health`, readiness
 on `/v1/ready`.
 

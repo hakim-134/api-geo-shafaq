@@ -20,18 +20,19 @@ import (
 )
 
 // Avatars are the emojis guests get: animals, plants and friendly things that look fine
-// on a big screen in class or at work. Reviewed by hand; nothing rude, sad or national.
+// on a big screen in class or at work. Reviewed by hand; nothing rude, sad, national or
+// gambling-like (no 🍑, no 🎲).
 var Avatars = []string{
 	"🐼", "🦊", "🐨", "🐯", "🦁", "🐸", "🐵", "🦉", "🐧", "🐢",
 	"🐙", "🦋", "🐝", "🐞", "🦄", "🐳", "🐬", "🦒", "🦓", "🐘",
 	"🦔", "🦦", "🦥", "🐿️", "🦩", "🦜", "🐰", "🐻", "🐻‍❄️", "🐹",
 	"🐱", "🐶", "🐴", "🐫", "🦌", "🦚", "🦭", "🐠", "🦀", "🐌",
-	"🌵", "🌻", "🌷", "🍀", "🌳", "🍉", "🍎", "🍇", "🍑", "🍋",
-	"🥝", "🥕", "🌽", "🍄", "⭐", "🌙", "⛰️", "🎈", "🪁", "🚲",
-	"🚀", "⚽", "🏀", "🎨", "🎲", "🧩", "📚", "🎧", "🧭", "🗺️",
+	"🌵", "🌻", "🌷", "🍀", "🌳", "🍉", "🍎", "🍇", "🍋", "🥝",
+	"🥕", "🌽", "🍄", "⭐", "🌙", "⛰️", "🎈", "🪁", "🚲", "🚀",
+	"⚽", "🏀", "🎨", "🧩", "📚", "🎧", "🧭", "🗺️",
 }
 
-// GuestName is the emoji and two digits: 🐼_42. Names are not unique (70 × 100); the user
+// GuestName is the emoji and two digits: 🐼_42. Names are not unique (68 × 100); the user
 // id tells players apart.
 func GuestName(avatar string, n int) string {
 	return fmt.Sprintf("%s_%02d", avatar, n%100)

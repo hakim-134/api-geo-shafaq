@@ -1,4 +1,4 @@
-// Command shafaq-worker runs the background jobs (River): the Yandex usage warning and the
+// Command shafaq-worker runs the background jobs (River): the Yandex usage warnings and the
 // cleanup. One is enough; River makes sure each job runs once even with more.
 package main
 

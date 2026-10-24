@@ -1,0 +1,38 @@
+# The server on the owner's laptop: one container (migrations, then the worker and the API) on
+# the machine's shared postgres and redis containers (Docker network infra). The server itself
+# runs docker-compose.yml. The game is geo-shafaq's docker-compose.lcl.yml on :8130.
+#
+#   make lcl        # docker compose -f docker-compose.lcl.yml up -d --build
+#
+# Needs PGPASSWORD (the shared Postgres' password) in the environment, e.g. from direnv.
+
+name: shafaq-api
+
+services:
+  api:
+    build: .
+    container_name: shafaq-api
+    restart: unless-stopped
+    # The worker gets its own metrics port: it shares the container with the API.
+    command:
+      - sh
+      - -c
+      - 'shafaq-tools migrate && { METRICS_ADDR=127.0.0.1:9132 shafaq-worker & } && exec shafaq-api'
+    environment:
+      DATABASE_URL: postgres://postgres@postgres:5432/shafaq_lcl?sslmode=disable
+      PGPASSWORD: ${PGPASSWORD:?the shared Postgres password}
+      VALKEY_URL: redis://redis:6379/1
+      # the laptop, and a phone on its Wi-Fi hotspot
+      WEB_ORIGINS: http://localhost:*,http://127.0.0.1:*,http://10.42.0.1:*
+      # demo first: testing never spends the free Yandex key's ~100 views a day
+      PROVIDERS: demo,yandex
+      YANDEX_DAILY_LIMIT: ${YANDEX_DAILY_LIMIT:-100}
+      YANDEX_CABINET_KEY: ${YANDEX_CABINET_KEY:-}
+      TELEGRAM_ALERT_TOKEN: ${TELEGRAM_ALERT_TOKEN:-}
+      TELEGRAM_ALERT_CHAT: ${TELEGRAM_ALERT_CHAT:-}
+    ports: ["8131:8131"]
+    networks: [infra]
+
+networks:
+  infra:
+    external: true

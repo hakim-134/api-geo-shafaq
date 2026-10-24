@@ -115,7 +115,9 @@ func (q *Queries) GetPanorama(ctx context.Context, id int64) (GetPanoramaRow, er
 }
 
 const markUsageWarned = `-- name: MarkUsageWarned :exec
-UPDATE provider_usage SET warned = true WHERE day = $1 AND provider = $2
+INSERT INTO provider_usage (day, provider, warned)
+VALUES ($1, $2, true)
+ON CONFLICT (day, provider) DO UPDATE SET warned = true
 `
 
 type MarkUsageWarnedParams struct {
@@ -123,6 +125,7 @@ type MarkUsageWarnedParams struct {
 	Provider string
 }
 
+// The row may not exist yet: Yandex's own count can warn before we counted a view that day.
 func (q *Queries) MarkUsageWarned(ctx context.Context, arg MarkUsageWarnedParams) error {
 	_, err := q.db.Exec(ctx, markUsageWarned, arg.Day, arg.Provider)
 	return err
@@ -287,4 +290,21 @@ func (q *Queries) UsageToWarn(ctx context.Context, arg UsageToWarnParams) ([]Usa
 		return nil, err
 	}
 	return items, nil
+}
+
+const usageWarned = `-- name: UsageWarned :one
+SELECT EXISTS (SELECT 1 FROM provider_usage WHERE day = $1 AND provider = $2 AND warned)
+`
+
+type UsageWarnedParams struct {
+	Day      time.Time
+	Provider string
+}
+
+// Whether the owner already heard about the day.
+func (q *Queries) UsageWarned(ctx context.Context, arg UsageWarnedParams) (bool, error) {
+	row := q.db.QueryRow(ctx, usageWarned, arg.Day, arg.Provider)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
 }

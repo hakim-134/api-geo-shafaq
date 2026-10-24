@@ -1,8 +1,7 @@
 // Package testdb gives integration tests a fresh, migrated database of their own.
 //
 // Tests that need it run only when TEST_DATABASE_URL points at a Postgres with PostGIS
-// (locally: the compose db; in CI: a service container). Each test gets a new database
-// that is dropped afterwards.
+// (locally: the compose db). Each test gets a new database that is dropped afterwards.
 package testdb
 
 import (
@@ -23,7 +22,7 @@ func New(t *testing.T) *pgxpool.Pool {
 	t.Helper()
 	base := os.Getenv("TEST_DATABASE_URL")
 	if base == "" {
-		t.Skip("TEST_DATABASE_URL not set (e.g. postgres://shafaq:shafaq@127.0.0.1:5433/shafaq?sslmode=disable)")
+		t.Skip("TEST_DATABASE_URL not set (e.g. postgres://postgres@127.0.0.1:5432/shafaq_lcl?sslmode=disable)")
 	}
 	ctx := context.Background()
 	admin, err := pgx.Connect(ctx, base)

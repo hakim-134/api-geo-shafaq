@@ -54,8 +54,15 @@ RETURNING views;
 SELECT day, provider, views FROM provider_usage
 WHERE provider = @provider AND views >= @threshold AND NOT warned;
 
+-- name: UsageWarned :one
+-- Whether the owner already heard about the day.
+SELECT EXISTS (SELECT 1 FROM provider_usage WHERE day = @day AND provider = @provider AND warned);
+
 -- name: MarkUsageWarned :exec
-UPDATE provider_usage SET warned = true WHERE day = @day AND provider = @provider;
+-- The row may not exist yet: Yandex's own count can warn before we counted a view that day.
+INSERT INTO provider_usage (day, provider, warned)
+VALUES (@day, @provider, true)
+ON CONFLICT (day, provider) DO UPDATE SET warned = true;
 
 -- name: ScanPoints :many
 -- The Yandex library points: where other providers are looked for.
