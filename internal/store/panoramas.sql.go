@@ -162,6 +162,46 @@ func (q *Queries) RetireOutsidePanoramas(ctx context.Context) (int64, error) {
 	return result.RowsAffected(), nil
 }
 
+const scanPoints = `-- name: ScanPoints :many
+SELECT id, source, street_id, ST_Y(pos)::float8 AS lat, ST_X(pos)::float8 AS lon
+FROM panoramas WHERE provider = 'yandex' AND status = 'active' ORDER BY id
+`
+
+type ScanPointsRow struct {
+	ID       int64
+	Source   string
+	StreetID *int64
+	Lat      float64
+	Lon      float64
+}
+
+// The Yandex library points: where other providers are looked for.
+func (q *Queries) ScanPoints(ctx context.Context) ([]ScanPointsRow, error) {
+	rows, err := q.db.Query(ctx, scanPoints)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ScanPointsRow{}
+	for rows.Next() {
+		var i ScanPointsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Source,
+			&i.StreetID,
+			&i.Lat,
+			&i.Lon,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const tagPanoramaPlaces = `-- name: TagPanoramaPlaces :execrows
 UPDATE panoramas p
 SET place_ids = coalesce((SELECT array_agg(pl.id ORDER BY pl.size_km DESC)

@@ -7,7 +7,7 @@
 //	shafaq-tools maps                         the official maps
 //	shafaq-tools tag                          re-tag every panorama with its places
 //	shafaq-tools stats                        what is in the library
-//	shafaq-tools mapillary-audit              count Mapillary's 360° images (MAPILLARY_TOKEN)
+//	shafaq-tools google                       Google panoramas near the library points (GOOGLE_MAPS_KEY)
 //	shafaq-tools setup -pbf …                 all of the above, in order, on an empty database
 //
 // Settings come from the environment, like the API's.
@@ -31,13 +31,12 @@ import (
 	"github.com/hakim-134/api-geo-shafaq/internal/maps"
 	"github.com/hakim-134/api-geo-shafaq/internal/places"
 	"github.com/hakim-134/api-geo-shafaq/internal/platform"
-	"github.com/hakim-134/api-geo-shafaq/internal/provider/mapillary"
 	"github.com/hakim-134/api-geo-shafaq/internal/store"
 )
 
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Fprintln(os.Stderr, "usage: shafaq-tools <migrate|places|v0|demo|maps|tag|stats|mapillary-audit|setup> [flags]")
+		fmt.Fprintln(os.Stderr, "usage: shafaq-tools <migrate|places|v0|demo|maps|tag|stats|google|setup> [flags]")
 		os.Exit(2)
 	}
 	cmd, args := os.Args[1], os.Args[2:]
@@ -53,20 +52,18 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	if cmd == "mapillary-audit" {
-		if err := mapillary.Audit(ctx, cfg.MapillaryToken, os.Stdout); err != nil {
-			fatal(err)
-		}
-		return
-	}
-
 	pool, err := db.Open(ctx, cfg.DatabaseURL)
 	if err != nil {
 		fatal(err)
 	}
 	defer pool.Close()
 
-	if err := run(ctx, pool, cmd, *pbf); err != nil {
+	if cmd == "google" {
+		err = library.ScanGoogle(ctx, pool, cfg.GoogleMapsKey, os.Stdout)
+	} else {
+		err = run(ctx, pool, cmd, *pbf)
+	}
+	if err != nil {
 		fatal(err)
 	}
 }

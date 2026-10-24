@@ -26,7 +26,7 @@ type Config struct {
 	Providers        []string // enabled panorama providers, in order of preference
 	DemoSecret       string   // signs the demo provider's opaque references
 	YandexDailyLimit int      // the free key's daily panorama views
-	MapillaryToken   string   // server-side token for the pipeline and the audit
+	GoogleMapsKey    string   // server-side: `shafaq-tools google` (free metadata look-ups)
 
 	TelegramAlertToken string // bot token for warnings to the owner (optional)
 	TelegramAlertChat  string
@@ -48,10 +48,10 @@ func Load() (Config, error) {
 		CookieSecure:       boolean(env("COOKIE_SECURE", "false")),
 		CookieDomain:       env("COOKIE_DOMAIN", ""),
 		SessionTTL:         365 * 24 * time.Hour,
-		Providers:          list(env("PROVIDERS", "yandex,mapillary,demo")),
+		Providers:          list(env("PROVIDERS", "yandex,demo")),
 		DemoSecret:         env("DEMO_SECRET", "dev-only-demo-secret"),
 		YandexDailyLimit:   integer(env("YANDEX_DAILY_LIMIT", "100")),
-		MapillaryToken:     env("MAPILLARY_TOKEN", ""),
+		GoogleMapsKey:      env("GOOGLE_MAPS_KEY", ""),
 		TelegramAlertToken: env("TELEGRAM_ALERT_TOKEN", ""),
 		TelegramAlertChat:  env("TELEGRAM_ALERT_CHAT", ""),
 		LogFormat:          env("LOG_FORMAT", "text"),

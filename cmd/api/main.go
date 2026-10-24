@@ -24,7 +24,6 @@ import (
 	"github.com/hakim-134/api-geo-shafaq/internal/platform"
 	"github.com/hakim-134/api-geo-shafaq/internal/players"
 	"github.com/hakim-134/api-geo-shafaq/internal/provider"
-	"github.com/hakim-134/api-geo-shafaq/internal/provider/mapillary"
 	"github.com/hakim-134/api-geo-shafaq/internal/store"
 )
 
@@ -56,7 +55,7 @@ func run() error {
 	defer valkey.Close()
 
 	demo := provider.Demo{Secret: []byte(cfg.DemoSecret), BaseURL: cfg.PublicURL}
-	reg, err := provider.NewRegistry(cfg.Providers, provider.Yandex{}, mapillary.Provider{}, demo)
+	reg, err := provider.NewRegistry(cfg.Providers, provider.Yandex{}, provider.Google{}, demo)
 	if err != nil {
 		return err
 	}

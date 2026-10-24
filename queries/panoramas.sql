@@ -56,3 +56,8 @@ WHERE provider = @provider AND views >= @threshold AND NOT warned;
 
 -- name: MarkUsageWarned :exec
 UPDATE provider_usage SET warned = true WHERE day = @day AND provider = @provider;
+
+-- name: ScanPoints :many
+-- The Yandex library points: where other providers are looked for.
+SELECT id, source, street_id, ST_Y(pos)::float8 AS lat, ST_X(pos)::float8 AS lon
+FROM panoramas WHERE provider = 'yandex' AND status = 'active' ORDER BY id;

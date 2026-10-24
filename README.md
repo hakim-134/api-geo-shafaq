@@ -34,10 +34,10 @@ make smoke     # plays a whole demo game against it
 |---|---|
 | `cmd/api` | the HTTP API |
 | `cmd/worker` | background jobs (River, in Postgres): Yandex usage warning, cleanup |
-| `cmd/tools` | `migrate`, `places`, `v0`, `demo`, `maps`, `tag`, `stats`, `mapillary-audit`, `setup` |
+| `cmd/tools` | `migrate`, `places`, `v0`, `demo`, `maps`, `tag`, `stats`, `google`, `setup` |
 | `internal/game` | solo games: round picking, the clock, hints, scoring |
 | `internal/maps` | maps (the official four for now) and the round picker |
-| `internal/provider` | the panorama providers behind one interface: `yandex`, `mapillary`, `demo` |
+| `internal/provider` | the panorama providers behind one interface: `yandex`, `google`, `demo` |
 | `internal/places` | the place tree from OSM, outlines, "where is this point" |
 | `internal/score`, `internal/rules` | the score formula and the one rule set |
 | `internal/players` | guests (🐼_42) and sessions |

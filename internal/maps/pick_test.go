@@ -74,7 +74,7 @@ func TestPickAvoidsRepeatsAndProviders(t *testing.T) {
 	if _, ok := m.PickRound(rng, onlyDemo, used); ok {
 		t.Fatal("all four demo panoramas were shown, yet a fifth was picked")
 	}
-	if _, ok := m.PickRound(rng, map[string]bool{"mapillary": true}, Used{}); ok {
+	if _, ok := m.PickRound(rng, map[string]bool{"google": true}, Used{}); ok {
 		t.Fatal("picked from a provider with no panoramas here")
 	}
 }

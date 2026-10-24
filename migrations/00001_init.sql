@@ -54,7 +54,7 @@ CREATE TABLE panoramas (
     taken_at   date,
     street_id  bigint REFERENCES streets (id),
     place_ids  bigint[] NOT NULL DEFAULT '{}', -- every place it is inside, country down
-    source     text   NOT NULL, -- v0_locations | v0_streets | pipeline | demo
+    source     text   NOT NULL, -- v0_locations | v0_streets | pipeline | demo | google_scan
     status     text   NOT NULL DEFAULT 'active'
         CHECK (status IN ('candidate', 'active', 'rejected', 'gone')),
     checked_at timestamptz,     -- a viewer last opened it here

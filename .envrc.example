@@ -8,6 +8,6 @@ export PUBLIC_URL=http://localhost:8131
 # demo first: development never spends the free Yandex key's ~100 views a day
 export PROVIDERS=demo,yandex
 export YANDEX_DAILY_LIMIT=100
-# export MAPILLARY_TOKEN=          # for `shafaq-tools mapillary-audit`
+# export GOOGLE_MAPS_KEY=          # for `shafaq-tools google` (free Street View metadata look-ups)
 # export TELEGRAM_ALERT_TOKEN=     # bot that warns the owner at 80% of the Yandex limit
 # export TELEGRAM_ALERT_CHAT=
