@@ -19,6 +19,24 @@ func TestCleanUz(t *testing.T) {
 	}
 }
 
+func TestCleanEn(t *testing.T) {
+	cases := []struct{ kind, uz, en, want string }{
+		{"district", "Yunusobod tumani", "Yunusabad district", "Yunusabad District"},
+		{"district", "Uchtepa tumani", "Uchtepa tumani", "Uchtepa District"},
+		{"district", "Bo‘ston tumani", "Bo'ston Distric", "Bo'ston District"},
+		{"district", "Xiva tumani", "Khiva", "Khiva District"},
+		{"district", "Bekobod", "Bekabad", "Bekabad"},
+		{"city", "Andijon shahri", "Andijan City", "Andijan"},
+		{"city", "Nukus shahri", "Nukus shahri", "Nukus"},
+		{"region", "Andijon viloyati", "Andijan Region", "Andijan Region"},
+	}
+	for _, c := range cases {
+		if got := CleanEn(c.kind, c.uz, c.en); got != c.want {
+			t.Errorf("CleanEn(%q, %q) = %q, want %q", c.kind, c.en, got, c.want)
+		}
+	}
+}
+
 func TestSlug(t *testing.T) {
 	cases := map[string]string{
 		"Mirzo Ulug‘bek tumani":         "mirzo-ulugbek-tumani",

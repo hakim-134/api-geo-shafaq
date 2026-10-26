@@ -7,8 +7,10 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 	"time"
 
@@ -23,7 +25,8 @@ import (
 	"github.com/hakim-134/api-geo-shafaq/internal/store"
 )
 
-// UsageCheckArgs: warn the owner when Yandex views reach 80% of the free daily limit.
+// UsageCheckArgs: tell the owner when a provider's views near its daily line (80% of its cap,
+// or of the free Yandex key's limit when Yandex has no cap), and when a cap is reached.
 type UsageCheckArgs struct{}
 
 func (UsageCheckArgs) Kind() string { return "usage_check" }
@@ -31,28 +34,80 @@ func (UsageCheckArgs) Kind() string { return "usage_check" }
 type UsageCheck struct {
 	river.WorkerDefaults[UsageCheckArgs]
 	Q     *store.Queries
-	Limit int
+	Limit int            // the free Yandex key's daily views
+	Caps  map[string]int // DAILY_CAPS
 	Alert Alerter
 }
 
 func (w *UsageCheck) Work(ctx context.Context, _ *river.Job[UsageCheckArgs]) error {
-	if w.Limit <= 0 {
-		return nil
+	// today and yesterday only: a cap set later says nothing about old days
+	since := provider.Today(time.Now()).AddDate(0, 0, -1)
+	lines := map[string]int{}
+	for name, limit := range w.Caps {
+		if limit > 0 {
+			lines[name] = limit
+		}
 	}
-	threshold := int32(float64(w.Limit) * provider.WarnShare)
-	rows, err := w.Q.UsageToWarn(ctx, store.UsageToWarnParams{Provider: "yandex", Threshold: threshold})
+	if _, capped := lines["yandex"]; !capped && w.Limit > 0 {
+		lines["yandex"] = w.Limit
+	}
+	for _, name := range slices.Sorted(maps.Keys(lines)) {
+		if err := w.near(ctx, name, lines[name], since); err != nil {
+			return err
+		}
+		if limit := w.Caps[name]; limit > 0 {
+			if err := w.stopped(ctx, name, limit, since); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func (w *UsageCheck) near(ctx context.Context, name string, line int, since time.Time) error {
+	threshold := int32(float64(line) * provider.WarnShare)
+	rows, err := w.Q.UsageToWarn(ctx, store.UsageToWarnParams{Provider: name, Threshold: threshold, Since: since})
 	if err != nil {
 		return err
 	}
 	for _, r := range rows {
-		msg := fmt.Sprintf("Shafaq Geo: %d Yandex panorama views on %s, the free key allows about %d a day. "+
-			"Going over again and again gets the key blocked for good: time to buy the commercial license.",
-			r.Views, r.Day.Format("2006-01-02"), w.Limit)
-		slog.Warn("yandex usage warning", "day", r.Day, "views", r.Views, "limit", w.Limit)
+		var msg string
+		switch {
+		case w.Caps[name] > 0:
+			msg = fmt.Sprintf("Shafaq Geo: %d %s panorama views on %s, of today's cap of %d. "+
+				"At the cap its rounds stop until midnight (Moscow time) and games use the other providers.",
+				r.Views, name, r.Day.Format("2006-01-02"), line)
+		default:
+			msg = fmt.Sprintf("Shafaq Geo: %d Yandex panorama views on %s, the free key allows about %d a day. "+
+				"Going over again and again gets the key blocked for good: time to buy the commercial license.",
+				r.Views, r.Day.Format("2006-01-02"), line)
+		}
+		slog.Warn("panorama usage warning", "provider", name, "day", r.Day, "views", r.Views, "line", line)
 		if err := w.Alert.Send(ctx, msg); err != nil {
 			return err // retried by River; the day stays unwarned until it works
 		}
 		if err := w.Q.MarkUsageWarned(ctx, store.MarkUsageWarnedParams{Day: r.Day, Provider: r.Provider}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (w *UsageCheck) stopped(ctx context.Context, name string, limit int, since time.Time) error {
+	rows, err := w.Q.UsageToStop(ctx, store.UsageToStopParams{Provider: name, Cap: int32(limit), Since: since})
+	if err != nil {
+		return err
+	}
+	for _, r := range rows {
+		msg := fmt.Sprintf("Shafaq Geo: %s reached today's cap of %d panorama views (%s). "+
+			"No new %s rounds until midnight, Moscow time; games use the other providers, "+
+			"and if a game has none, new games wait for tomorrow. Raise DAILY_CAPS to allow more.",
+			name, limit, r.Day.Format("2006-01-02"), name)
+		slog.Warn("panorama daily cap reached", "provider", name, "day", r.Day, "views", r.Views, "cap", limit)
+		if err := w.Alert.Send(ctx, msg); err != nil {
+			return err
+		}
+		if err := w.Q.MarkStopTold(ctx, store.MarkStopToldParams{Day: r.Day, Provider: r.Provider}); err != nil {
 			return err
 		}
 	}
@@ -189,7 +244,7 @@ func NewClient(pool *pgxpool.Pool, cfg config.Config) (*river.Client[pgx.Tx], er
 	httpc := &http.Client{Timeout: 10 * time.Second}
 	alert := Telegram{Token: cfg.TelegramAlertToken, Chat: cfg.TelegramAlertChat, Client: httpc}
 	workers := river.NewWorkers()
-	river.AddWorker(workers, &UsageCheck{Q: q, Limit: cfg.YandexDailyLimit, Alert: alert})
+	river.AddWorker(workers, &UsageCheck{Q: q, Limit: cfg.YandexDailyLimit, Caps: cfg.DailyCaps, Alert: alert})
 	river.AddWorker(workers, &QuotaCheck{Q: q, Cabinet: provider.YandexCabinet{Key: cfg.YandexCabinetKey, Client: httpc}, Alert: alert})
 	river.AddWorker(workers, &Cleanup{Q: q})
 	periodic := []*river.PeriodicJob{

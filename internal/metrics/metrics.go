@@ -30,6 +30,9 @@ var (
 	PanoramaViewsToday = prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Name: "shafaq_panorama_views_today", Help: "Panoramas handed to viewers today (Moscow day, as Yandex counts), by provider.",
 	}, []string{"provider"})
+	PanoramaCap = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Name: "shafaq_panorama_daily_cap", Help: "Rounds a provider may get per day (DAILY_CAPS; 0 = no cap), by provider.",
+	}, []string{"provider"})
 	YandexUsed = prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Name: "shafaq_yandex_requests_today", Help: "Yandex's own count of today's requests, by service and counter.",
 	}, []string{"service", "counter"})
@@ -51,7 +54,7 @@ func init() {
 	Registry.MustRegister(
 		collectors.NewGoCollector(),
 		collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}),
-		HTTPRequests, HTTPDuration, PanoramaViews, PanoramaViewsToday, YandexUsed, YandexLimit, GamesStarted, RoundsScored, GuestsCreated,
+		HTTPRequests, HTTPDuration, PanoramaViews, PanoramaViewsToday, PanoramaCap, YandexUsed, YandexLimit, GamesStarted, RoundsScored, GuestsCreated,
 	)
 }
 

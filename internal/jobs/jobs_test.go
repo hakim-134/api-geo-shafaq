@@ -96,6 +96,48 @@ func TestUsageCheckWarnsOnce(t *testing.T) {
 	}
 }
 
+func TestUsageCheckTellsAboutACap(t *testing.T) {
+	ctx := context.Background()
+	q := store.New(testdb.New(t))
+	var got sent
+	w := &UsageCheck{Q: q, Limit: 100, Caps: map[string]int{"google": 10}, Alert: &got}
+	day := store.CountProviderViewParams{Day: provider.Today(time.Now()), Provider: "google"}
+	check := func(views, want int) {
+		t.Helper()
+		for range views {
+			if _, err := q.CountProviderView(ctx, day); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if err := w.Work(ctx, nil); err != nil {
+			t.Fatal(err)
+		}
+		if len(got) != want {
+			t.Fatalf("sent %q, want %d messages", got, want)
+		}
+	}
+	check(7, 0)
+	check(1, 1) // 8 of 10
+	if !strings.Contains(got[0], "8 google panorama views") || !strings.Contains(got[0], "cap of 10") {
+		t.Fatalf("near the cap: %q", got[0])
+	}
+	check(2, 2) // 10 of 10: stopped
+	if !strings.Contains(got[1], "google reached today's cap of 10") {
+		t.Fatalf("at the cap: %q", got[1])
+	}
+	check(5, 2) // told once a day
+
+	// a cap set later says nothing about old days
+	old := store.CountProviderViewParams{Day: provider.Today(time.Now()).AddDate(0, 0, -3), Provider: "yandex"}
+	for range 150 {
+		if _, err := q.CountProviderView(ctx, old); err != nil {
+			t.Fatal(err)
+		}
+	}
+	w.Caps["yandex"] = 100
+	check(0, 2)
+}
+
 func TestTelegramErrorHidesToken(t *testing.T) {
 	tg := Telegram{Token: "secret-token", Chat: "1", Client: &http.Client{Transport: failing{}}}
 	err := tg.Send(context.Background(), "hi")

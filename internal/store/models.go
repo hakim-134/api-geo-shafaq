@@ -111,6 +111,7 @@ type ProviderUsage struct {
 	Provider string
 	Views    int32
 	Warned   bool
+	StopTold bool
 }
 
 type Round struct {

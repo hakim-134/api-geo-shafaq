@@ -14,9 +14,9 @@ type Yandex struct{}
 func (Yandex) Name() string { return "yandex" }
 
 func (Yandex) Capabilities() Capabilities {
-	return Capabilities{Move: true, SearchNear: true, Credit: "© Yandex"}
+	return Capabilities{Move: true, SearchNear: true, Credit: "© Yandex", GuessMap: "yandex"}
 }
 
 func (Yandex) View(p Pano, near geo.Point, snapKm, heading float64) View {
-	return View{Provider: "yandex", Near: &near, SnapKm: snapKm, Heading: heading}
+	return View{Provider: "yandex", Near: &near, SnapKm: snapKm, Heading: heading, GuessMap: "yandex"}
 }

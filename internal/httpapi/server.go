@@ -100,8 +100,8 @@ func fail(w http.ResponseWriter, r *http.Request, err error) {
 	case errors.Is(err, game.ErrWrongPhase), errors.Is(err, game.ErrGameOver), errors.Is(err, game.ErrTooFar),
 		errors.Is(err, game.ErrNoHints), errors.Is(err, game.ErrTooManyFails):
 		status, code = http.StatusConflict, err.Error()
-	case errors.Is(err, game.ErrNoPanorama):
-		status, code = http.StatusServiceUnavailable, "no_panorama"
+	case errors.Is(err, game.ErrNoPanorama), errors.Is(err, game.ErrDailyCap):
+		status, code = http.StatusServiceUnavailable, err.Error()
 	case errors.Is(err, context.Canceled):
 		return // the player went away
 	}

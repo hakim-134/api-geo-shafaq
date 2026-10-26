@@ -17,6 +17,10 @@ type Capabilities struct {
 	HasDate     bool   // when the panorama was taken
 	SearchNear  bool   // the viewer searches near a point and reports what it opened
 	Credit      string // shown under the panorama
+	// GuessMap is the map a round must be guessed on when the provider's terms forbid its
+	// panoramas next to another map: Yandex only on Yandex's (free terms §6.1.1), Google
+	// only on Google's (Maps terms §3.2.3(e)). Empty = any map.
+	GuessMap string
 }
 
 // Pano is a panorama from the library.
@@ -36,6 +40,7 @@ type View struct {
 	Ref      string     // the provider's id, or an opaque reference
 	ImageURL string     // an image the viewer opens directly
 	Heading  float64    // where to look first, degrees from north
+	GuessMap string     // Capabilities.GuessMap: the map the web must guess on, if any
 }
 
 // Provider is one panorama source.

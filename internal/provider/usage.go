@@ -2,7 +2,9 @@ package provider
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
+	"slices"
 	"time"
 
 	"github.com/hakim-134/api-geo-shafaq/internal/metrics"
@@ -25,9 +27,44 @@ const WarnShare = 0.8
 // day; going over again and again gets the key blocked for good, so the license is bought
 // when the count gets close (the worker warns at 80%). It counts rounds, not every request
 // the browser makes; Yandex's own count comes from YandexCabinet.
+//
+// Caps are daily budgets in rounds (DAILY_CAPS): a provider that reached its cap gets no new
+// rounds that day, so a paid provider never spends more than planned, and the game uses its
+// other providers instead.
 type Usage struct {
 	Q           *store.Queries
 	YandexLimit int
+	Caps        map[string]int
+}
+
+// CheckCaps refuses a cap for a provider that does not exist: a typo would leave a paid
+// provider without its budget.
+func CheckCaps(caps map[string]int, all ...Provider) error {
+	for name := range caps {
+		if !slices.ContainsFunc(all, func(p Provider) bool { return p.Name() == name }) {
+			return fmt.Errorf("DAILY_CAPS: unknown panorama provider %q", name)
+		}
+		metrics.PanoramaCap.WithLabelValues(name).Set(float64(caps[name]))
+	}
+	return nil
+}
+
+// Capped are the providers that reached their cap today.
+func (u Usage) Capped(ctx context.Context) (map[string]bool, error) {
+	out := map[string]bool{}
+	if len(u.Caps) == 0 {
+		return out, nil
+	}
+	rows, err := u.Q.UsageOn(ctx, Today(time.Now()))
+	if err != nil {
+		return nil, err
+	}
+	for _, r := range rows {
+		if limit, ok := u.Caps[r.Provider]; ok && limit > 0 && int(r.Views) >= limit {
+			out[r.Provider] = true
+		}
+	}
+	return out, nil
 }
 
 // Count records one view. It never fails the round: a counting error is only logged.

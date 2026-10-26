@@ -9,6 +9,7 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"regexp"
 	"runtime"
 	"strings"
 
@@ -178,6 +179,20 @@ var uzWords = strings.NewReplacer(
 // CleanUz fixes the apostrophes and capitals OSM names come with.
 func CleanUz(s string) string {
 	return uzWords.Replace(uzMarks.Replace(strings.TrimSpace(s)))
+}
+
+// enSuffix is how OSM's English names end: "District", "district", "Distric", "tumani",
+// "City", "shahri", or nothing.
+var enSuffix = regexp.MustCompile(`(?i)\s+(district|distric|tumani|city|shahri)$`)
+
+// CleanEn gives English names one form, as the result card and hints show them: a district
+// (its Uzbek name ends in "tumani") is "Yunusabad District", a city is just "Samarkand".
+func CleanEn(kind, uz, en string) string {
+	en = strings.TrimSpace(enSuffix.ReplaceAllString(strings.TrimSpace(en), ""))
+	if kind == "district" && strings.HasSuffix(uz, " tumani") {
+		en += " District"
+	}
+	return en
 }
 
 // Kind decides what a boundary is in the game's terms.

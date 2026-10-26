@@ -141,6 +141,9 @@ func viewOut(v provider.View) oapi.PanoView {
 	if v.ImageURL != "" {
 		out.ImageUrl = &v.ImageURL
 	}
+	if v.GuessMap != "" {
+		out.GuessMap = &v.GuessMap
+	}
 	heading := v.Heading
 	out.Heading = &heading
 	return out

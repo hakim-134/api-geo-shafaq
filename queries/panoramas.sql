@@ -49,10 +49,14 @@ VALUES (@day, @provider, 1)
 ON CONFLICT (day, provider) DO UPDATE SET views = provider_usage.views + 1
 RETURNING views;
 
+-- name: UsageOn :many
+-- Every provider's views on a day: what the daily caps are checked against.
+SELECT provider, views FROM provider_usage WHERE day = @day;
+
 -- name: UsageToWarn :many
--- Days at or over the warning threshold that nobody was told about yet.
+-- Recent days at or over the warning threshold that nobody was told about yet.
 SELECT day, provider, views FROM provider_usage
-WHERE provider = @provider AND views >= @threshold AND NOT warned;
+WHERE provider = @provider AND views >= @threshold AND NOT warned AND day >= @since;
 
 -- name: UsageWarned :one
 -- Whether the owner already heard about the day.
@@ -63,6 +67,14 @@ SELECT EXISTS (SELECT 1 FROM provider_usage WHERE day = @day AND provider = @pro
 INSERT INTO provider_usage (day, provider, warned)
 VALUES (@day, @provider, true)
 ON CONFLICT (day, provider) DO UPDATE SET warned = true;
+
+-- name: UsageToStop :many
+-- Recent days a provider reached its cap that nobody was told about yet.
+SELECT day, provider, views FROM provider_usage
+WHERE provider = @provider AND views >= @cap AND NOT stop_told AND day >= @since;
+
+-- name: MarkStopTold :exec
+UPDATE provider_usage SET stop_told = true WHERE day = @day AND provider = @provider;
 
 -- name: ScanPoints :many
 -- The Yandex library points: where other providers are looked for.

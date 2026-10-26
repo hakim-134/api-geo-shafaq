@@ -32,6 +32,7 @@ var (
 	ErrWrongPhase   = errors.New("wrong_phase")
 	ErrGameOver     = errors.New("game_over")
 	ErrNoPanorama   = errors.New("no_panorama")
+	ErrDailyCap     = errors.New("daily_cap")
 	ErrTooFar       = errors.New("too_far")
 	ErrNoHints      = errors.New("no_hints")
 	ErrTooManyFails = errors.New("too_many_fails")
@@ -133,8 +134,16 @@ func (s *Service) Create(ctx context.Context, userID uuid.UUID, slug string, r *
 	if err := rs.Validate(s.Reg.Known()); err != nil {
 		return nil, ErrBadInput
 	}
-	if m.Count(s.Reg.Allowed(rs.Providers)) < rs.Rounds {
+	allowed := s.Reg.Allowed(rs.Providers)
+	if m.Count(allowed) < rs.Rounds {
 		return nil, ErrNoPanorama
+	}
+	open, err := s.uncapped(ctx, allowed)
+	if err != nil {
+		return nil, err
+	}
+	if m.Count(open) < rs.Rounds {
+		return nil, ErrDailyCap
 	}
 	rulesJSON, _ := json.Marshal(rs)
 	row, err := store.New(s.Pool).CreateGame(ctx, store.CreateGameParams{
@@ -341,8 +350,24 @@ func (s *Service) seed(ctx context.Context, q *store.Queries, id uuid.UUID) (int
 	return row.Seed, err
 }
 
+// uncapped is allowed without the providers that reached today's cap.
+func (s *Service) uncapped(ctx context.Context, allowed map[string]bool) (map[string]bool, error) {
+	capped, err := s.Usage.Capped(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := map[string]bool{}
+	for name := range allowed {
+		if !capped[name] {
+			out[name] = true
+		}
+	}
+	return out, nil
+}
+
 // pick chooses a panorama for round n that earlier rounds did not show. skip is a panorama
-// that just failed to open.
+// that just failed to open. Providers at today's cap give way to the game's others; when all
+// of them are at it, the game still finishes on them (only new games are turned away).
 func (s *Service) pick(ctx context.Context, q *store.Queries, g *Game, seed int64, n, salt int, skip *int64) (maps.Candidate, geo.Point, float64, error) {
 	rows, err := q.GameRounds(ctx, store.GameRoundsParams{GameID: g.ID, UserID: g.UserID})
 	if err != nil {
@@ -358,8 +383,16 @@ func (s *Service) pick(ctx context.Context, q *store.Queries, g *Game, seed int6
 	if skip != nil {
 		used.IDs[*skip] = true
 	}
+	allowed := s.Reg.Allowed(g.Rules.Providers)
+	open, err := s.uncapped(ctx, allowed)
+	if err != nil {
+		return maps.Candidate{}, geo.Point{}, 0, err
+	}
 	r := rng(seed, n, salt)
-	c, ok := g.Map.PickRound(r, s.Reg.Allowed(g.Rules.Providers), used)
+	c, ok := g.Map.PickRound(r, open, used)
+	if !ok {
+		c, ok = g.Map.PickRound(r, allowed, used)
+	}
 	if !ok {
 		return c, geo.Point{}, 0, ErrNoPanorama
 	}

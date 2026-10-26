@@ -114,6 +114,20 @@ func (q *Queries) GetPanorama(ctx context.Context, id int64) (GetPanoramaRow, er
 	return i, err
 }
 
+const markStopTold = `-- name: MarkStopTold :exec
+UPDATE provider_usage SET stop_told = true WHERE day = $1 AND provider = $2
+`
+
+type MarkStopToldParams struct {
+	Day      time.Time
+	Provider string
+}
+
+func (q *Queries) MarkStopTold(ctx context.Context, arg MarkStopToldParams) error {
+	_, err := q.db.Exec(ctx, markStopTold, arg.Day, arg.Provider)
+	return err
+}
+
 const markUsageWarned = `-- name: MarkUsageWarned :exec
 INSERT INTO provider_usage (day, provider, warned)
 VALUES ($1, $2, true)
@@ -255,14 +269,83 @@ func (q *Queries) UpsertPanorama(ctx context.Context, arg UpsertPanoramaParams) 
 	return err
 }
 
+const usageOn = `-- name: UsageOn :many
+SELECT provider, views FROM provider_usage WHERE day = $1
+`
+
+type UsageOnRow struct {
+	Provider string
+	Views    int32
+}
+
+// Every provider's views on a day: what the daily caps are checked against.
+func (q *Queries) UsageOn(ctx context.Context, day time.Time) ([]UsageOnRow, error) {
+	rows, err := q.db.Query(ctx, usageOn, day)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []UsageOnRow{}
+	for rows.Next() {
+		var i UsageOnRow
+		if err := rows.Scan(&i.Provider, &i.Views); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const usageToStop = `-- name: UsageToStop :many
+SELECT day, provider, views FROM provider_usage
+WHERE provider = $1 AND views >= $2 AND NOT stop_told AND day >= $3
+`
+
+type UsageToStopParams struct {
+	Provider string
+	Cap      int32
+	Since    time.Time
+}
+
+type UsageToStopRow struct {
+	Day      time.Time
+	Provider string
+	Views    int32
+}
+
+// Recent days a provider reached its cap that nobody was told about yet.
+func (q *Queries) UsageToStop(ctx context.Context, arg UsageToStopParams) ([]UsageToStopRow, error) {
+	rows, err := q.db.Query(ctx, usageToStop, arg.Provider, arg.Cap, arg.Since)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []UsageToStopRow{}
+	for rows.Next() {
+		var i UsageToStopRow
+		if err := rows.Scan(&i.Day, &i.Provider, &i.Views); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const usageToWarn = `-- name: UsageToWarn :many
 SELECT day, provider, views FROM provider_usage
-WHERE provider = $1 AND views >= $2 AND NOT warned
+WHERE provider = $1 AND views >= $2 AND NOT warned AND day >= $3
 `
 
 type UsageToWarnParams struct {
 	Provider  string
 	Threshold int32
+	Since     time.Time
 }
 
 type UsageToWarnRow struct {
@@ -271,9 +354,9 @@ type UsageToWarnRow struct {
 	Views    int32
 }
 
-// Days at or over the warning threshold that nobody was told about yet.
+// Recent days at or over the warning threshold that nobody was told about yet.
 func (q *Queries) UsageToWarn(ctx context.Context, arg UsageToWarnParams) ([]UsageToWarnRow, error) {
-	rows, err := q.db.Query(ctx, usageToWarn, arg.Provider, arg.Threshold)
+	rows, err := q.db.Query(ctx, usageToWarn, arg.Provider, arg.Threshold, arg.Since)
 	if err != nil {
 		return nil, err
 	}

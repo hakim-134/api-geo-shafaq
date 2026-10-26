@@ -56,8 +56,12 @@ func run() error {
 	defer valkey.Close()
 
 	demo := provider.Demo{Secret: []byte(cfg.DemoSecret), BaseURL: cfg.PublicURL}
-	reg, err := provider.NewRegistry(cfg.Providers, cfg.TestProviders, provider.Yandex{}, provider.Google{}, demo)
+	all := []provider.Provider{provider.Yandex{}, provider.Google{}, demo}
+	reg, err := provider.NewRegistry(cfg.Providers, cfg.TestProviders, all...)
 	if err != nil {
+		return err
+	}
+	if err := provider.CheckCaps(cfg.DailyCaps, all...); err != nil {
 		return err
 	}
 	q := store.New(pool)
@@ -69,7 +73,7 @@ func run() error {
 		Players: &players.Service{Q: q, TTL: cfg.SessionTTL},
 		Games: &game.Service{
 			Pool: pool, Catalog: catalog, Reg: reg,
-			Usage: provider.Usage{Q: q, YandexLimit: cfg.YandexDailyLimit},
+			Usage: provider.Usage{Q: q, YandexLimit: cfg.YandexDailyLimit, Caps: cfg.DailyCaps},
 		},
 		Catalog: catalog,
 		Demo:    demo,
@@ -87,7 +91,7 @@ func run() error {
 	}
 	errc := make(chan error, 1)
 	go func() {
-		slog.Info("shafaq-api listening", "addr", cfg.Addr, "providers", reg.Names(), "test_providers", cfg.TestProviders, "origins", cfg.WebOrigins)
+		slog.Info("shafaq-api listening", "addr", cfg.Addr, "providers", reg.Names(), "test_providers", cfg.TestProviders, "daily_caps", cfg.DailyCaps, "origins", cfg.WebOrigins)
 		errc <- srv.ListenAndServe()
 	}()
 

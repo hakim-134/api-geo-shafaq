@@ -129,7 +129,9 @@ type CreateGame struct {
 // Error defines model for Error.
 type Error struct {
 	// Code no_session | not_found | bad_input | wrong_phase | round_running | game_over |
-	// no_panorama | too_far | rate_limited | internal
+	// no_panorama | daily_cap | too_far | rate_limited | internal.
+	// daily_cap: the game's panorama providers reached today's budget (`DAILY_CAPS`);
+	// new games start again after midnight, Moscow time.
 	Code    string  `json:"code"`
 	Message *string `json:"message,omitempty"`
 }
@@ -284,6 +286,14 @@ type Movement string
 
 // PanoView What the browser's viewer needs for this round, and nothing more.
 type PanoView struct {
+	// GuessMap The map this round must be guessed on, because the provider's terms forbid its
+	// panoramas next to another map (Yandex: only on Yandex's map; Google: only on
+	// Google's). Absent: any map, the game's usual one.
+	//
+	//
+	// Example: yandex
+	GuessMap *string `json:"guessMap,omitempty"`
+
 	// Heading Where to look first, degrees from north.
 	Heading *float64 `json:"heading,omitempty"`
 

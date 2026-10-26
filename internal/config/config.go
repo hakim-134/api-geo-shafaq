@@ -28,7 +28,11 @@ type Config struct {
 	DemoSecret       string   // signs the demo provider's opaque references
 	YandexDailyLimit int      // the free key's daily panorama views
 	YandexCabinetKey string   // Developer's Account API: Yandex's own request counts (optional)
-	GoogleMapsKey    string   // server-side: `shafaq-tools google` (free metadata look-ups)
+	// DailyCaps: rounds a provider may get per day (Moscow time), then the game uses its other
+	// providers. "google=160,yandex=900"; a provider not named has no cap. Google's default
+	// keeps it inside its free 5 000 panoramas a month.
+	DailyCaps     map[string]int
+	GoogleMapsKey string // server-side: `shafaq-tools google` (free metadata look-ups)
 
 	TelegramAlertToken string // bot token for warnings to the owner (optional)
 	TelegramAlertChat  string
@@ -72,7 +76,25 @@ func Load() (Config, error) {
 	if len(c.Providers) == 0 {
 		return c, fmt.Errorf("PROVIDERS is empty")
 	}
+	var err error
+	if c.DailyCaps, err = caps(env("DAILY_CAPS", "google=160")); err != nil {
+		return c, err
+	}
 	return c, nil
+}
+
+// caps reads "name=rounds,…"; 0 = no cap.
+func caps(s string) (map[string]int, error) {
+	out := map[string]int{}
+	for _, part := range list(s) {
+		name, n, ok := strings.Cut(part, "=")
+		rounds, err := strconv.Atoi(strings.TrimSpace(n))
+		if !ok || err != nil || rounds < 0 {
+			return nil, fmt.Errorf("DAILY_CAPS: %q is not provider=rounds", part)
+		}
+		out[strings.TrimSpace(name)] = rounds
+	}
+	return out, nil
 }
 
 // env reads a setting; unset or empty means the default (compose passes unset ones as "").

@@ -42,7 +42,7 @@ container, migrations at start, then the worker and the API on :8131).
 | `cmd/tools` | `migrate`, `places`, `v0`, `demo`, `maps`, `tag`, `stats`, `google`, `setup` |
 | `internal/game` | solo games: round picking, the clock, hints, scoring |
 | `internal/maps` | maps (the official four for now) and the round picker |
-| `internal/provider` | the panorama providers behind one interface: `yandex`, `google`, `demo`. `PROVIDERS` are what players get (and what the menu counts); `TEST_PROVIDERS` play only in games that name them |
+| `internal/provider` | the panorama providers behind one interface: `yandex`, `google`, `demo`. `PROVIDERS` are what players get (and what the menu counts); `TEST_PROVIDERS` play only in games that name them; `DAILY_CAPS` are each one's daily budget |
 | `internal/platform` | logging, and error tracking: Error lines also go to GlitchTip when `GLITCHTIP_DSN` is set |
 | `deploy/` | the server: Caddy, Prometheus, Loki/Alloy, Grafana (dashboard), the db image with pgBackRest, `deploy.sh`, `env.example` |
 | `internal/places` | the place tree from OSM, outlines, "where is this point" |
@@ -83,6 +83,27 @@ while the worker runs, or send `/id` in a group, and it answers with the ID):
   and every step in a Move round loads a panorama.
 
 Days run by Moscow time, as Yandex resets its limits. Buy the commercial license before launch.
+
+## Daily caps and the guess map
+
+Every provider can have a daily budget in rounds, `DAILY_CAPS` (`google=160,yandex=900`; the
+default `google=160` keeps Google inside its free 5 000 panoramas a month). At its cap a provider
+gets no new rounds until midnight, Moscow time:
+
+- a round goes to another provider the game allows, if there is one;
+- a game that already started still finishes on its provider (a few rounds over, never a game
+  cut in half);
+- a new game that only has capped providers is refused with `daily_cap`, and the game says
+  "today's panoramas are used up, come back tomorrow".
+
+The worker tells the owner at 80% of a cap and when it is reached (log and Telegram), once a
+day each. The cap counts rounds handed out, as `provider_usage` does: for Yandex that is less
+than Yandex's own count (see above), so a Yandex cap meant to stay under the free limit should
+sit well below 100.
+
+Each round also says which map it must be guessed on, `guessMap`, when the provider's terms
+tie its panoramas to its own map: `yandex` (free terms §6.1.1), `google` (Maps terms
+§3.2.3(e)). The web guesses on Yandex's map today; on Google day it switches by this field.
 
 ## The server
 

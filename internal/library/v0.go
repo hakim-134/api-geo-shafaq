@@ -6,7 +6,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"regexp"
+	"slices"
 	"strconv"
+	"strings"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -31,6 +34,22 @@ type v0Tashkent struct {
 		Lat float64 `json:"lat"`
 		Lon float64 `json:"lon"`
 	} `json:"metro"`
+}
+
+// ruTypes go first in a Russian street name, as Tashkent says it and Yandex's map writes it:
+// "улица Фурката", "проспект Амира Тимура". v0's list puts them last ("Фурката улица"). An
+// adjective keeps the type last: "Чиланзарская улица", "Ферганское шоссе".
+var (
+	ruTypes     = []string{"улица", "проспект", "переулок", "проезд", "тупик", "шоссе", "бульвар", "площадь", "дорога", "набережная"}
+	ruAdjective = regexp.MustCompile(`(ск|цк|н|в)(ая|ое|ий|ый|ой)$`)
+)
+
+func ruStreet(s string) string {
+	w := strings.Fields(s)
+	if len(w) < 2 || !slices.Contains(ruTypes, w[len(w)-1]) || ruAdjective.MatchString(w[len(w)-2]) {
+		return s
+	}
+	return w[len(w)-1] + " " + strings.Join(w[:len(w)-1], " ")
 }
 
 // YandexRef is how a Yandex panorama is keyed in the library: the point, to 5 decimals
@@ -68,7 +87,7 @@ func ImportV0(ctx context.Context, pool *pgxpool.Pool) error {
 		}
 		n := 0
 		for _, s := range tk.Streets {
-			streetID, err := q.UpsertStreet(ctx, store.UpsertStreetParams{PlaceID: tashkent.ID, NameUz: s.Uz, NameRu: s.Ru})
+			streetID, err := q.UpsertStreet(ctx, store.UpsertStreetParams{PlaceID: tashkent.ID, NameUz: s.Uz, NameRu: ruStreet(s.Ru)})
 			if err != nil {
 				return err
 			}

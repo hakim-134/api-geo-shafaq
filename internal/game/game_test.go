@@ -102,6 +102,9 @@ func TestYandexRoundIsScoredAgainstWhatTheViewerOpened(t *testing.T) {
 	if rd.View.Near == nil || rd.View.SnapKm != 0.12 {
 		t.Fatalf("a yandex round needs a search point and the snap: %+v", rd.View)
 	}
+	if rd.View.GuessMap != "yandex" {
+		t.Fatalf("a yandex round is guessed on Yandex's map (its terms): %+v", rd.View)
+	}
 	near := *rd.View.Near
 
 	if _, err := f.svc.Shown(ctx, f.user, g.ID, 1, &geo.Point{Lat: near.Lat + 0.01, Lon: near.Lon}); !errors.Is(err, ErrTooFar) {
@@ -276,5 +279,62 @@ func TestBadRules(t *testing.T) {
 	r.Providers = []string{"demo"}
 	if _, err := f.svc.Create(context.Background(), f.user, "nowhere", r); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("unknown map: %v", err)
+	}
+}
+
+func TestDailyCap(t *testing.T) {
+	f := setup(t)
+	ctx := context.Background()
+	q := store.New(f.pool)
+	f.svc.Usage.Caps = map[string]int{"yandex": 3}
+	view := func() {
+		t.Helper()
+		if _, err := q.CountProviderView(ctx, store.CountProviderViewParams{Day: provider.Today(time.Now()), Provider: "yandex"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	play := func(g *Game) []string {
+		t.Helper()
+		var got []string
+		for n := 1; n <= g.Rules.Rounds; n++ {
+			rd, err := f.svc.NextRound(ctx, f.user, g.ID)
+			if err != nil {
+				t.Fatalf("round %d: %v", n, err)
+			}
+			got = append(got, rd.View.Provider)
+			if _, err := f.svc.Guess(ctx, f.user, g.ID, n, nil); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return got
+	}
+
+	// 2 of 3 used: a yandex game starts, reaches the cap in round 1 and still finishes on it
+	view()
+	view()
+	g, err := f.svc.Create(ctx, f.user, "city", testRules("yandex"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := play(g); got[0] != "yandex" || got[1] != "yandex" {
+		t.Fatalf("a started game must finish on its provider: %v", got)
+	}
+
+	// at the cap: a game with another provider uses it, a yandex-only game cannot start
+	g, err = f.svc.Create(ctx, f.user, "city", testRules("yandex", "demo"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := play(g); got[0] != "demo" || got[1] != "demo" {
+		t.Fatalf("rounds past the cap should fall back to demo: %v", got)
+	}
+	if _, err := f.svc.Create(ctx, f.user, "city", testRules("yandex")); !errors.Is(err, ErrDailyCap) {
+		t.Fatalf("a yandex game started past the cap: %v", err)
+	}
+
+	// no cap: plays as before
+	f.svc.Usage.Caps = map[string]int{"yandex": 0}
+	if _, err := f.svc.Create(ctx, f.user, "city", testRules("yandex")); err != nil {
+		t.Fatalf("cap 0 means no cap: %v", err)
 	}
 }

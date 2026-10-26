@@ -62,6 +62,7 @@ func Import(ctx context.Context, pool *pgxpool.Pool, pbf string) error {
 		if en == "" {
 			en = uz
 		}
+		en = CleanEn(kind, uz, en)
 		if ru == "" {
 			ru = uz
 		}

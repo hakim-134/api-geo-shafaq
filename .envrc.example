@@ -12,6 +12,7 @@ export WEB_ORIGINS=http://localhost:*,http://127.0.0.1:*
 export PROVIDERS=yandex
 export TEST_PROVIDERS=demo
 export YANDEX_DAILY_LIMIT=100
+# export DAILY_CAPS=google=160     # rounds per provider per day; then games use their others
 # export YANDEX_CABINET_KEY=       # Developer's Account API key: the worker reads Yandex's own count
 # export GOOGLE_MAPS_KEY=          # for `shafaq-tools google` (free Street View metadata look-ups)
 # export TELEGRAM_ALERT_TOKEN=     # bot that warns the owner at 80% of the Yandex limit
