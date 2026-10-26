@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -34,6 +35,15 @@ type Map struct {
 	Cands    []Candidate
 	groups   map[int64][]int // group key → indices into Cands
 	Outline  string          // the place's outline SVG, for maps of one place
+	Places   []int64         // the map's places, largest first
+}
+
+// Place is the map's one place, for maps made of a single place (nil otherwise).
+func (m *Map) Place(t *places.Tree) *places.Place {
+	if len(m.Places) != 1 || t == nil {
+		return nil
+	}
+	return t.ByID(m.Places[0])
 }
 
 // Candidate is one panorama a round can show.
@@ -89,12 +99,14 @@ func (m *Map) Count(allowed map[string]bool) int {
 // Catalog serves maps from memory, reloading each a few minutes after it was read, so the
 // round picker never queries the whole library.
 type Catalog struct {
-	q   *store.Queries
-	reg *provider.Registry
-	ttl time.Duration
+	q    *store.Queries
+	reg  *provider.Registry
+	tree *places.Cache
+	ttl  time.Duration
 
 	mu      sync.Mutex
 	entries map[string]*entry
+	making  sync.Mutex // one place map made at a time
 }
 
 type entry struct {
@@ -102,8 +114,8 @@ type entry struct {
 	loaded time.Time
 }
 
-func NewCatalog(q *store.Queries, reg *provider.Registry) *Catalog {
-	return &Catalog{q: q, reg: reg, ttl: 5 * time.Minute, entries: map[string]*entry{}}
+func NewCatalog(q *store.Queries, reg *provider.Registry, tree *places.Cache) *Catalog {
+	return &Catalog{q: q, reg: reg, tree: tree, ttl: 5 * time.Minute, entries: map[string]*entry{}}
 }
 
 // Official lists the menu's maps.
@@ -132,6 +144,11 @@ func (c *Catalog) Get(ctx context.Context, slug string) (*Map, error) {
 		return e.m, nil
 	}
 	m, err := c.load(ctx, slug)
+	if errors.Is(err, ErrNotFound) && strings.HasPrefix(slug, PlacePrefix) {
+		if err = c.makePlaceMap(ctx, strings.TrimPrefix(slug, PlacePrefix)); err == nil {
+			m, err = c.load(ctx, slug)
+		}
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -211,12 +228,15 @@ func (c *Catalog) load(ctx context.Context, slug string) (*Map, error) {
 		m.BBox = pbox
 	}
 	m.SizeKm = m.BBox.Diagonal()
-	outlines, err := c.q.MapOutlines(ctx, row.ID)
+	mp, err := c.q.MapPlaces(ctx, row.ID)
 	if err != nil {
 		return nil, err
 	}
-	if len(outlines) == 1 {
-		m.Outline = outlines[0]
+	for _, p := range mp {
+		m.Places = append(m.Places, p.ID)
+	}
+	if len(mp) == 1 {
+		m.Outline = mp[0].OutlineSvg
 	}
 	if m.Pick.StreetsOnly && pbox != (geo.BBox{}) {
 		// a street map opens on its streets, not on the whole city

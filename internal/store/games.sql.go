@@ -13,6 +13,15 @@ import (
 	"github.com/google/uuid"
 )
 
+const abandonGame = `-- name: AbandonGame :exec
+UPDATE games SET status = 'abandoned', finished_at = now() WHERE id = $1
+`
+
+func (q *Queries) AbandonGame(ctx context.Context, id uuid.UUID) error {
+	_, err := q.db.Exec(ctx, abandonGame, id)
+	return err
+}
+
 const abandonStaleGames = `-- name: AbandonStaleGames :execrows
 UPDATE games SET status = 'abandoned'
 WHERE status = 'playing' AND started_at < now() - make_interval(hours => $1::int)
@@ -36,7 +45,7 @@ func (q *Queries) AddHintToGame(ctx context.Context, id uuid.UUID) error {
 }
 
 const addToGame = `-- name: AddToGame :exec
-UPDATE games SET total = total + $1, hints_used = hints_used + $2 WHERE id = $3
+UPDATE games SET total = total + $1, hints_used = hints_used + $2, played = played + 1 WHERE id = $3
 `
 
 type AddToGameParams struct {
@@ -45,6 +54,7 @@ type AddToGameParams struct {
 	ID    uuid.UUID
 }
 
+// A guessed round: its score, and one more round played.
 func (q *Queries) AddToGame(ctx context.Context, arg AddToGameParams) error {
 	_, err := q.db.Exec(ctx, addToGame, arg.Score, arg.Hints, arg.ID)
 	return err
@@ -53,7 +63,7 @@ func (q *Queries) AddToGame(ctx context.Context, arg AddToGameParams) error {
 const createGame = `-- name: CreateGame :one
 INSERT INTO games (user_id, map_id, mode, rules, size_km, seed)
 VALUES ($1, $2, 'solo', $3, $4, $5)
-RETURNING id, user_id, map_id, mode, rules, size_km, seed, status, total, hints_used, started_at, finished_at
+RETURNING id, user_id, map_id, mode, rules, size_km, seed, status, total, hints_used, started_at, finished_at, played
 `
 
 type CreateGameParams struct {
@@ -86,6 +96,7 @@ func (q *Queries) CreateGame(ctx context.Context, arg CreateGameParams) (Game, e
 		&i.HintsUsed,
 		&i.StartedAt,
 		&i.FinishedAt,
+		&i.Played,
 	)
 	return i, err
 }
@@ -224,7 +235,7 @@ func (q *Queries) GameRounds(ctx context.Context, arg GameRoundsParams) ([]GameR
 }
 
 const getGame = `-- name: GetGame :one
-SELECT id, user_id, map_id, mode, rules, size_km, seed, status, total, hints_used, started_at, finished_at FROM games WHERE id = $1
+SELECT id, user_id, map_id, mode, rules, size_km, seed, status, total, hints_used, started_at, finished_at, played FROM games WHERE id = $1
 `
 
 func (q *Queries) GetGame(ctx context.Context, id uuid.UUID) (Game, error) {
@@ -243,12 +254,13 @@ func (q *Queries) GetGame(ctx context.Context, id uuid.UUID) (Game, error) {
 		&i.HintsUsed,
 		&i.StartedAt,
 		&i.FinishedAt,
+		&i.Played,
 	)
 	return i, err
 }
 
 const listUserGames = `-- name: ListUserGames :many
-SELECT g.id, g.status, g.started_at, g.finished_at, g.total, g.rules,
+SELECT g.id, g.status, g.started_at, g.finished_at, g.total, g.rules, g.played,
        m.slug AS map_slug, m.name_uz, m.name_ru, m.name_en
 FROM games g
 JOIN maps m ON m.id = g.map_id
@@ -271,6 +283,7 @@ type ListUserGamesRow struct {
 	FinishedAt *time.Time
 	Total      int32
 	Rules      json.RawMessage
+	Played     int32
 	MapSlug    string
 	NameUz     string
 	NameRu     string
@@ -294,6 +307,7 @@ func (q *Queries) ListUserGames(ctx context.Context, arg ListUserGamesParams) ([
 			&i.FinishedAt,
 			&i.Total,
 			&i.Rules,
+			&i.Played,
 			&i.MapSlug,
 			&i.NameUz,
 			&i.NameRu,
@@ -310,7 +324,7 @@ func (q *Queries) ListUserGames(ctx context.Context, arg ListUserGamesParams) ([
 }
 
 const lockGame = `-- name: LockGame :one
-SELECT id, user_id, map_id, mode, rules, size_km, seed, status, total, hints_used, started_at, finished_at FROM games WHERE id = $1 FOR UPDATE
+SELECT id, user_id, map_id, mode, rules, size_km, seed, status, total, hints_used, started_at, finished_at, played FROM games WHERE id = $1 FOR UPDATE
 `
 
 func (q *Queries) LockGame(ctx context.Context, id uuid.UUID) (Game, error) {
@@ -329,6 +343,7 @@ func (q *Queries) LockGame(ctx context.Context, id uuid.UUID) (Game, error) {
 		&i.HintsUsed,
 		&i.StartedAt,
 		&i.FinishedAt,
+		&i.Played,
 	)
 	return i, err
 }

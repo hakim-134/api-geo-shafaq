@@ -7,6 +7,7 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 	"time"
 
 	"github.com/google/uuid"
@@ -206,7 +207,7 @@ func (q *Queries) DeleteUserSessions(ctx context.Context, userID uuid.UUID) (int
 }
 
 const findUsers = `-- name: FindUsers :many
-SELECT id, name, avatar, guest, created_at, last_seen_at, banned_at, ban_reason FROM users
+SELECT id, name, avatar, guest, created_at, last_seen_at, banned_at, ban_reason, prefs FROM users
 WHERE id::text LIKE $1::text || '%' OR name = $1::text
 ORDER BY last_seen_at DESC
 LIMIT 20
@@ -231,6 +232,7 @@ func (q *Queries) FindUsers(ctx context.Context, q_ string) ([]User, error) {
 			&i.LastSeenAt,
 			&i.BannedAt,
 			&i.BanReason,
+			&i.Prefs,
 		); err != nil {
 			return nil, err
 		}
@@ -269,11 +271,11 @@ func (q *Queries) IdentityOwner(ctx context.Context, arg IdentityOwnerParams) (I
 const mapBests = `-- name: MapBests :many
 SELECT DISTINCT ON (m.id) m.slug, m.name_uz, m.name_ru, m.name_en,
        (count(*) OVER (PARTITION BY m.id))::int AS games,
-       g.id AS game_id, g.total, (g.rules ->> 'rounds')::int AS rounds
+       g.id AS game_id, g.total, g.played AS rounds
 FROM games g
 JOIN maps m ON m.id = g.map_id
-WHERE g.user_id = $1 AND g.status = 'finished'
-ORDER BY m.id, g.total::float8 / greatest((g.rules ->> 'rounds')::int, 1) DESC
+WHERE g.user_id = $1 AND g.status = 'finished' AND g.played > 0
+ORDER BY m.id, g.total::float8 / g.played DESC
 `
 
 type MapBestsRow struct {
@@ -287,7 +289,7 @@ type MapBestsRow struct {
 	Rounds int32
 }
 
-// The player's best game on each map (best per round, so 3- and 10-round games compare).
+// The player's best game on each map (best per round, so 3-, 10- and endless games compare).
 func (q *Queries) MapBests(ctx context.Context, userID uuid.UUID) ([]MapBestsRow, error) {
 	rows, err := q.db.Query(ctx, mapBests, userID)
 	if err != nil {
@@ -459,7 +461,7 @@ func (q *Queries) OpenReports(ctx context.Context) ([]OpenReportsRow, error) {
 
 const profileStats = `-- name: ProfileStats :one
 SELECT count(DISTINCT g.id)::int                              AS games,
-       coalesce(max(g.total), 0)::int                          AS best,
+       coalesce(max(g.total) FILTER (WHERE (g.rules ->> 'rounds')::int > 0), 0)::int AS best,
        coalesce(sum(gu.score), 0)::bigint                      AS score_sum,
        count(gu.*)::int                                        AS rounds,
        count(gu.*) FILTER (WHERE gu.score >= 4900)::int        AS perfect,
@@ -514,8 +516,35 @@ func (q *Queries) SetAccount(ctx context.Context, id uuid.UUID) error {
 	return err
 }
 
+const setPrefs = `-- name: SetPrefs :one
+UPDATE users SET prefs = prefs || $1::jsonb WHERE id = $2 RETURNING id, name, avatar, guest, created_at, last_seen_at, banned_at, ban_reason, prefs
+`
+
+type SetPrefsParams struct {
+	Prefs json.RawMessage
+	ID    uuid.UUID
+}
+
+// Merges the given preferences into the player's.
+func (q *Queries) SetPrefs(ctx context.Context, arg SetPrefsParams) (User, error) {
+	row := q.db.QueryRow(ctx, setPrefs, arg.Prefs, arg.ID)
+	var i User
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.Avatar,
+		&i.Guest,
+		&i.CreatedAt,
+		&i.LastSeenAt,
+		&i.BannedAt,
+		&i.BanReason,
+		&i.Prefs,
+	)
+	return i, err
+}
+
 const setProfile = `-- name: SetProfile :one
-UPDATE users SET name = $1, avatar = $2 WHERE id = $3 RETURNING id, name, avatar, guest, created_at, last_seen_at, banned_at, ban_reason
+UPDATE users SET name = $1, avatar = $2 WHERE id = $3 RETURNING id, name, avatar, guest, created_at, last_seen_at, banned_at, ban_reason, prefs
 `
 
 type SetProfileParams struct {
@@ -536,6 +565,7 @@ func (q *Queries) SetProfile(ctx context.Context, arg SetProfileParams) (User, e
 		&i.LastSeenAt,
 		&i.BannedAt,
 		&i.BanReason,
+		&i.Prefs,
 	)
 	return i, err
 }

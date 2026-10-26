@@ -8,8 +8,6 @@ package store
 import (
 	"context"
 	"encoding/json"
-
-	"github.com/google/uuid"
 )
 
 const addMapPlace = `-- name: AddMapPlace :exec
@@ -202,34 +200,6 @@ func (q *Queries) MapCandidates(ctx context.Context, arg MapCandidatesParams) ([
 	return items, nil
 }
 
-const mapOutlines = `-- name: MapOutlines :many
-SELECT pl.outline_svg
-FROM map_sources s JOIN places pl ON pl.id = s.place_id
-WHERE s.map_id = $1
-ORDER BY pl.size_km DESC
-`
-
-// The outlines of a map's places, largest first.
-func (q *Queries) MapOutlines(ctx context.Context, mapID int64) ([]string, error) {
-	rows, err := q.db.Query(ctx, mapOutlines, mapID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []string{}
-	for rows.Next() {
-		var outline_svg string
-		if err := rows.Scan(&outline_svg); err != nil {
-			return nil, err
-		}
-		items = append(items, outline_svg)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
 const mapPlaceExtent = `-- name: MapPlaceExtent :one
 SELECT coalesce(ST_XMin(e), 0)::float8 AS west, coalesce(ST_YMin(e), 0)::float8 AS south,
        coalesce(ST_XMax(e), 0)::float8 AS east, coalesce(ST_YMax(e), 0)::float8 AS north
@@ -258,28 +228,32 @@ func (q *Queries) MapPlaceExtent(ctx context.Context, mapID int64) (MapPlaceExte
 	return i, err
 }
 
-const streetsSeen = `-- name: StreetsSeen :many
-SELECT DISTINCT p.street_id::bigint AS street_id
-FROM guesses g
-JOIN rounds r ON r.game_id = g.game_id AND r.n = g.n
-JOIN panoramas p ON p.id = r.panorama_id
-WHERE g.user_id = $1 AND g.guessed_at IS NOT NULL AND p.street_id IS NOT NULL
+const mapPlaces = `-- name: MapPlaces :many
+SELECT pl.id, pl.outline_svg
+FROM map_sources s JOIN places pl ON pl.id = s.place_id
+WHERE s.map_id = $1
+ORDER BY pl.size_km DESC
 `
 
-// Streets the player has been on (any finished round), for street-map progress.
-func (q *Queries) StreetsSeen(ctx context.Context, userID uuid.UUID) ([]int64, error) {
-	rows, err := q.db.Query(ctx, streetsSeen, userID)
+type MapPlacesRow struct {
+	ID         int64
+	OutlineSvg string
+}
+
+// A map's places with their outlines, largest first.
+func (q *Queries) MapPlaces(ctx context.Context, mapID int64) ([]MapPlacesRow, error) {
+	rows, err := q.db.Query(ctx, mapPlaces, mapID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []int64{}
+	items := []MapPlacesRow{}
 	for rows.Next() {
-		var street_id int64
-		if err := rows.Scan(&street_id); err != nil {
+		var i MapPlacesRow
+		if err := rows.Scan(&i.ID, &i.OutlineSvg); err != nil {
 			return nil, err
 		}
-		items = append(items, street_id)
+		items = append(items, i)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -322,6 +296,47 @@ func (q *Queries) UpsertOfficialMap(ctx context.Context, arg UpsertOfficialMapPa
 		arg.Rules,
 		arg.Pick,
 		arg.Sort,
+	)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
+}
+
+const upsertPlaceMap = `-- name: UpsertPlaceMap :one
+INSERT INTO maps (slug, name_uz, name_ru, name_en, desc_uz, desc_ru, desc_en, visibility, rules, pick, sort)
+VALUES ($1, $2, $3, $4, $5, $6, $7, 'unlisted', $8, $9, 1000)
+ON CONFLICT (slug) DO UPDATE SET
+    name_uz = excluded.name_uz, name_ru = excluded.name_ru, name_en = excluded.name_en,
+    desc_uz = excluded.desc_uz, desc_ru = excluded.desc_ru, desc_en = excluded.desc_en,
+    pick = excluded.pick, updated_at = now()
+RETURNING id
+`
+
+type UpsertPlaceMapParams struct {
+	Slug   string
+	NameUz string
+	NameRu string
+	NameEn string
+	DescUz string
+	DescRu string
+	DescEn string
+	Rules  json.RawMessage
+	Pick   json.RawMessage
+}
+
+// A place's own map, made the first time someone picks the place. Unlisted: the menu shows
+// the official maps; places are reached through the place picker.
+func (q *Queries) UpsertPlaceMap(ctx context.Context, arg UpsertPlaceMapParams) (int64, error) {
+	row := q.db.QueryRow(ctx, upsertPlaceMap,
+		arg.Slug,
+		arg.NameUz,
+		arg.NameRu,
+		arg.NameEn,
+		arg.DescUz,
+		arg.DescRu,
+		arg.DescEn,
+		arg.Rules,
+		arg.Pick,
 	)
 	var id int64
 	err := row.Scan(&id)

@@ -10,13 +10,14 @@ func TestValidate(t *testing.T) {
 		}
 	}
 	bad := map[string]func(*Rules){
-		"no rounds":        func(r *Rules) { r.Rounds = 0 },
+		"negative rounds":  func(r *Rules) { r.Rounds = -1 },
 		"too many rounds":  func(r *Rules) { r.Rounds = 21 },
 		"5 s rounds":       func(r *Rules) { r.TimeSec = 5 },
 		"11 min rounds":    func(r *Rules) { r.TimeSec = 660 },
 		"unknown movement": func(r *Rules) { r.Movement = "fly" },
 		"negative hints":   func(r *Rules) { r.Hints.Count = -1 },
 		"hint per week":    func(r *Rules) { r.Hints.Per = "week" },
+		"hint by street":   func(r *Rules) { r.Hints.Kind = "street" },
 		"hint costs 150%":  func(r *Rules) { r.Hints.Cost = 1.5 },
 		"scale 0":          func(r *Rules) { r.ScoreScale = 0 },
 		"unknown provider": func(r *Rules) { r.Providers = []string{"google"} },
@@ -38,5 +39,17 @@ func TestHintsLeft(t *testing.T) {
 	perGame := Rules{Hints: Hints{Count: 3, Per: PerGame}}
 	if got := perGame.HintsLeft(1, 3); got != 0 {
 		t.Errorf("per game: %d", got)
+	}
+}
+
+func TestEndless(t *testing.T) {
+	r := Normal
+	r.Rounds = 0
+	if r.Validate([]string{"yandex"}) != nil || !r.Endless() || r.Last(100) {
+		t.Error("endless games: valid, and no round is the last")
+	}
+	r.Rounds = 7
+	if r.Last(6) || !r.Last(7) {
+		t.Error("7 rounds: the 7th is the last")
 	}
 }

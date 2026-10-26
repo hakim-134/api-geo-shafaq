@@ -13,7 +13,11 @@ SELECT * FROM games WHERE id = @id FOR UPDATE;
 UPDATE games SET status = 'finished', finished_at = now() WHERE id = @id;
 
 -- name: AddToGame :exec
-UPDATE games SET total = total + @score, hints_used = hints_used + @hints WHERE id = @id;
+-- A guessed round: its score, and one more round played.
+UPDATE games SET total = total + @score, hints_used = hints_used + @hints, played = played + 1 WHERE id = @id;
+
+-- name: AbandonGame :exec
+UPDATE games SET status = 'abandoned', finished_at = now() WHERE id = @id;
 
 -- name: AddHintToGame :exec
 UPDATE games SET hints_used = hints_used + 1 WHERE id = @id;
@@ -24,7 +28,7 @@ WHERE status = 'playing' AND started_at < now() - make_interval(hours => @older_
 
 -- name: ListUserGames :many
 -- Newest first; @before is the started_at of the last game on the previous page.
-SELECT g.id, g.status, g.started_at, g.finished_at, g.total, g.rules,
+SELECT g.id, g.status, g.started_at, g.finished_at, g.total, g.rules, g.played,
        m.slug AS map_slug, m.name_uz, m.name_ru, m.name_en
 FROM games g
 JOIN maps m ON m.id = g.map_id

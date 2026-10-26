@@ -65,16 +65,40 @@ func (e GameStatus) Valid() bool {
 
 // Defines values for HintKind.
 const (
-	District HintKind = "district"
-	Region   HintKind = "region"
+	HintKindCircle   HintKind = "circle"
+	HintKindDistrict HintKind = "district"
+	HintKindRegion   HintKind = "region"
 )
 
 // Valid indicates whether the value is a known member of the HintKind enum.
 func (e HintKind) Valid() bool {
 	switch e {
-	case District:
+	case HintKindCircle:
 		return true
-	case Region:
+	case HintKindDistrict:
+		return true
+	case HintKindRegion:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for HintRuleKind.
+const (
+	HintRuleKindCircle   HintRuleKind = "circle"
+	HintRuleKindDistrict HintRuleKind = "district"
+	HintRuleKindRegion   HintRuleKind = "region"
+)
+
+// Valid indicates whether the value is a known member of the HintRuleKind enum.
+func (e HintRuleKind) Valid() bool {
+	switch e {
+	case HintRuleKindCircle:
+		return true
+	case HintRuleKindDistrict:
+		return true
+	case HintRuleKindRegion:
 		return true
 	default:
 		return false
@@ -132,6 +156,99 @@ func (e Movement) Valid() bool {
 	case Nmpz:
 		return true
 	case Nomove:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for PlaceCardKind.
+const (
+	PlaceCardKindCity     PlaceCardKind = "city"
+	PlaceCardKindCountry  PlaceCardKind = "country"
+	PlaceCardKindDistrict PlaceCardKind = "district"
+	PlaceCardKindRegion   PlaceCardKind = "region"
+)
+
+// Valid indicates whether the value is a known member of the PlaceCardKind enum.
+func (e PlaceCardKind) Valid() bool {
+	switch e {
+	case PlaceCardKindCity:
+		return true
+	case PlaceCardKindCountry:
+		return true
+	case PlaceCardKindDistrict:
+		return true
+	case PlaceCardKindRegion:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for PlaceRefKind.
+const (
+	PlaceRefKindCity     PlaceRefKind = "city"
+	PlaceRefKindCountry  PlaceRefKind = "country"
+	PlaceRefKindDistrict PlaceRefKind = "district"
+	PlaceRefKindRegion   PlaceRefKind = "region"
+)
+
+// Valid indicates whether the value is a known member of the PlaceRefKind enum.
+func (e PlaceRefKind) Valid() bool {
+	switch e {
+	case PlaceRefKindCity:
+		return true
+	case PlaceRefKindCountry:
+		return true
+	case PlaceRefKindDistrict:
+		return true
+	case PlaceRefKindRegion:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for PrefsCompass.
+const (
+	Classic  PrefsCompass = "classic"
+	Mnemonic PrefsCompass = "mnemonic"
+	Modern   PrefsCompass = "modern"
+)
+
+// Valid indicates whether the value is a known member of the PrefsCompass enum.
+func (e PrefsCompass) Valid() bool {
+	switch e {
+	case Classic:
+		return true
+	case Mnemonic:
+		return true
+	case Modern:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ProgressUnit.
+const (
+	ProgressUnitDistrict ProgressUnit = "district"
+	ProgressUnitRegion   ProgressUnit = "region"
+	ProgressUnitSpot     ProgressUnit = "spot"
+	ProgressUnitStreet   ProgressUnit = "street"
+)
+
+// Valid indicates whether the value is a known member of the ProgressUnit enum.
+func (e ProgressUnit) Valid() bool {
+	switch e {
+	case ProgressUnitDistrict:
+		return true
+	case ProgressUnitRegion:
+		return true
+	case ProgressUnitSpot:
+		return true
+	case ProgressUnitStreet:
 		return true
 	default:
 		return false
@@ -284,13 +401,16 @@ type Health struct {
 	Version *string            `json:"version,omitempty"`
 }
 
-// Hint defines model for Hint.
+// Hint A name (region or district, with its outline on the map), or a circle that holds the place.
 type Hint struct {
-	Circle Circle   `json:"circle"`
+	Circle *Circle  `json:"circle,omitempty"`
 	Kind   HintKind `json:"kind"`
 
+	// Place The named place's slug, for its outline (`/v1/places/{slug}/shape`).
+	Place *string `json:"place,omitempty"`
+
 	// Text A name in the three languages. `ru` and `en` fall back to `uz` (street signs are in Uzbek Latin).
-	Text Text `json:"text"`
+	Text *Text `json:"text,omitempty"`
 }
 
 // HintKind defines model for Hint.Kind.
@@ -302,9 +422,15 @@ type HintRule struct {
 	Cost float64 `json:"cost"`
 
 	// Count How many hints; 0 = no Hint button.
-	Count int         `json:"count"`
-	Per   HintRulePer `json:"per"`
+	Count int `json:"count"`
+
+	// Kind Where a round's hints start: the region's name, the district's, or a circle. Each next hint narrows down (region → district → circles, each half the last); a name that would not narrow anything on this map is skipped. Absent: games from before, a name with a circle.
+	Kind *HintRuleKind `json:"kind,omitempty"`
+	Per  HintRulePer   `json:"per"`
 }
+
+// HintRuleKind Where a round's hints start: the region's name, the district's, or a circle. Each next hint narrows down (region → district → circles, each half the last); a name that would not narrow anything on this map is skipped. Absent: games from before, a name with a circle.
+type HintRuleKind string
 
 // HintRulePer defines model for HintRule.Per.
 type HintRulePer string
@@ -357,6 +483,9 @@ type MapSummary struct {
 	// Bbox [west, south, east, north]
 	Bbox []float64 `json:"bbox"`
 
+	// CanMove The map's panoramas let the player walk; otherwise `move` plays as `nomove`.
+	CanMove *bool `json:"canMove,omitempty"`
+
 	// Description A name in the three languages. `ru` and `en` fall back to `uz` (street signs are in Uzbek Latin).
 	Description Text `json:"description"`
 
@@ -373,23 +502,27 @@ type MapSummary struct {
 	// Panoramas Active panoramas in the map, on the players' providers.
 	Panoramas int `json:"panoramas"`
 
+	// Parent A place, by name. On a map, the map's one place (or its parent).
+	Parent *PlaceRef `json:"parent,omitempty"`
+
+	// Place A place, by name. On a map, the map's one place (or its parent).
+	Place *PlaceRef `json:"place,omitempty"`
+
+	// Progress How much of a place this player has seen (played a round there) and learned: a street
+	// or spot guessed within 500 m, a district or region guessed inside it.
+	Progress *Progress `json:"progress,omitempty"`
+
 	// Providers The players' providers with panoramas in this map. Test providers are never listed and never counted in `panoramas` or `groups`.
 	Providers []string `json:"providers"`
 
 	// Rules One set of rules for solo games, rooms and challenges.
 	Rules Rules `json:"rules"`
 
-	// Seen Streets this player has already been on (street maps only).
-	Seen *int `json:"seen,omitempty"`
-
 	// SizeKm The map's size D for scoring.
 	SizeKm float64 `json:"sizeKm"`
 
 	// Slug Example: tashkent-streets
 	Slug string `json:"slug"`
-
-	// Streets A street map; `groups` counts streets, and progress counts streets seen.
-	Streets *bool `json:"streets,omitempty"`
 }
 
 // Me defines model for Me.
@@ -445,6 +578,45 @@ type PanoView struct {
 	SnapKm *float64 `json:"snapKm,omitempty"`
 }
 
+// PlaceCard defines model for PlaceCard.
+type PlaceCard struct {
+	// Banner A photo of the place (Wikimedia Commons).
+	Banner       *string       `json:"banner,omitempty"`
+	BannerCredit *string       `json:"bannerCredit,omitempty"`
+	Kind         PlaceCardKind `json:"kind"`
+	Map          string        `json:"map"`
+
+	// Name A name in the three languages. `ru` and `en` fall back to `uz` (street signs are in Uzbek Latin).
+	Name Text `json:"name"`
+
+	// Outline The outline as a small SVG.
+	Outline string `json:"outline"`
+
+	// Panoramas Active panoramas, on the players' providers.
+	Panoramas int `json:"panoramas"`
+
+	// Places Places inside it that have panoramas (the picker can go deeper).
+	Places int `json:"places"`
+
+	// Progress How much of a place this player has seen (played a round there) and learned: a street
+	// or spot guessed within 500 m, a district or region guessed inside it.
+	Progress Progress `json:"progress"`
+	Slug     string   `json:"slug"`
+}
+
+// PlaceCardKind defines model for PlaceCard.Kind.
+type PlaceCardKind string
+
+// PlaceDetail defines model for PlaceDetail.
+type PlaceDetail struct {
+	// Children The places inside it, those with the most panoramas first.
+	Children []PlaceCard `json:"children"`
+
+	// Path Where it is, the country first.
+	Path  []PlaceRef `json:"path"`
+	Place PlaceCard  `json:"place"`
+}
+
 // PlaceInfo "You were here": what the round teaches.
 type PlaceInfo struct {
 	// City A name in the three languages. `ru` and `en` fall back to `uz` (street signs are in Uzbek Latin).
@@ -461,6 +633,25 @@ type PlaceInfo struct {
 	Street *Text `json:"street,omitempty"`
 }
 
+// PlaceRef A place, by name. On a map, the map's one place (or its parent).
+type PlaceRef struct {
+	Kind PlaceRefKind `json:"kind"`
+
+	// Map The place's own map: `place-<slug>`.
+	//
+	// Example: place-chilonzor-tumani
+	Map string `json:"map"`
+
+	// Name A name in the three languages. `ru` and `en` fall back to `uz` (street signs are in Uzbek Latin).
+	Name Text `json:"name"`
+
+	// Slug Example: chilonzor-tumani
+	Slug string `json:"slug"`
+}
+
+// PlaceRefKind defines model for PlaceRef.Kind.
+type PlaceRefKind string
+
 // PlaceShape defines model for PlaceShape.
 type PlaceShape struct {
 	// Geometry GeoJSON (Multi)Polygon, simplified.
@@ -470,6 +661,15 @@ type PlaceShape struct {
 	Outline string `json:"outline"`
 	Slug    string `json:"slug"`
 }
+
+// Prefs The player's own preferences. Absent fields are not set yet (the device's own choice stands).
+type Prefs struct {
+	// Compass The compass style. Whether a game has a compass at all is its rule.
+	Compass *PrefsCompass `json:"compass,omitempty"`
+}
+
+// PrefsCompass The compass style. Whether a game has a compass at all is its rule.
+type PrefsCompass string
 
 // Profile defines model for Profile.
 type Profile struct {
@@ -501,6 +701,18 @@ type ProfileUpdate struct {
 	Avatar *string `json:"avatar,omitempty"`
 	Name   *string `json:"name,omitempty"`
 }
+
+// Progress How much of a place this player has seen (played a round there) and learned: a street
+// or spot guessed within 500 m, a district or region guessed inside it.
+type Progress struct {
+	Learned int          `json:"learned"`
+	Seen    int          `json:"seen"`
+	Total   int          `json:"total"`
+	Unit    ProgressUnit `json:"unit"`
+}
+
+// ProgressUnit defines model for Progress.Unit.
+type ProgressUnit string
 
 // PublicUser defines model for PublicUser.
 type PublicUser struct {
@@ -580,7 +792,9 @@ type Rules struct {
 
 	// Providers Allowed panorama providers; empty = the players' providers (PROVIDERS) that cover the place. Test providers (TEST_PROVIDERS, e.g. demo) play only when named here.
 	Providers []string `json:"providers"`
-	Rounds    int      `json:"rounds"`
+
+	// Rounds 0 = endless, until the player finishes the game.
+	Rounds int `json:"rounds"`
 
 	// ScoreScale Stretches the map's scoring distance; 2 = forgiving, 0.6 = strict.
 	ScoreScale float64 `json:"scoreScale"`
@@ -640,6 +854,9 @@ type User struct {
 
 	// Name Example: 🐼_42
 	Name string `json:"name"`
+
+	// Prefs The player's own preferences. Absent fields are not set yet (the device's own choice stands).
+	Prefs *Prefs `json:"prefs,omitempty"`
 }
 
 // GameId defines model for GameId.
@@ -731,6 +948,9 @@ type RoundShownJSONRequestBody = RoundShown
 // UnlinkIdentityJSONRequestBody defines body for UnlinkIdentity for application/json ContentType.
 type UnlinkIdentityJSONRequestBody UnlinkIdentityJSONBody
 
+// UpdatePrefsJSONRequestBody defines body for UpdatePrefs for application/json ContentType.
+type UpdatePrefsJSONRequestBody = Prefs
+
 // UpdateProfileJSONRequestBody defines body for UpdateProfile for application/json ContentType.
 type UpdateProfileJSONRequestBody = ProfileUpdate
 
@@ -766,6 +986,9 @@ type ServerInterface interface {
 	// GetGame A game with every finished round. Also used to resume after a reload.
 	// (GET /v1/games/{gameId})
 	GetGame(w http.ResponseWriter, r *http.Request, gameId GameId)
+	// FinishGame Ends the game now, after any round (endless games end this way).
+	// (POST /v1/games/{gameId}/finish)
+	FinishGame(w http.ResponseWriter, r *http.Request, gameId GameId)
 	// NextRound Starts the next round. The server picks the panorama.
 	// (POST /v1/games/{gameId}/rounds)
 	NextRound(w http.ResponseWriter, r *http.Request, gameId GameId)
@@ -799,6 +1022,9 @@ type ServerInterface interface {
 	// UnlinkIdentity Removes a way to sign in. The last one stays (`last_identity`).
 	// (POST /v1/me/identities/unlink)
 	UnlinkIdentity(w http.ResponseWriter, r *http.Request)
+	// UpdatePrefs Saves the player's preferences, so every device gets them.
+	// (POST /v1/me/prefs)
+	UpdatePrefs(w http.ResponseWriter, r *http.Request)
 
 	// (GET /v1/me/profile)
 	GetMyProfile(w http.ResponseWriter, r *http.Request)
@@ -808,6 +1034,9 @@ type ServerInterface interface {
 	// GetDemoPanorama The drawn test panorama of the `demo` provider (a JPEG).
 	// (GET /v1/pano/demo/{ref})
 	GetDemoPanorama(w http.ResponseWriter, r *http.Request, ref string)
+	// GetPlace A place for the place picker, with where it is and what is inside it.
+	// (GET /v1/places/{slug})
+	GetPlace(w http.ResponseWriter, r *http.Request, slug Slug)
 	// GetPlaceShape A place's simplified boundary as GeoJSON, for the guess map.
 	// (GET /v1/places/{slug}/shape)
 	GetPlaceShape(w http.ResponseWriter, r *http.Request, slug Slug)
@@ -963,6 +1192,32 @@ func (siw *ServerInterfaceWrapper) GetGame(w http.ResponseWriter, r *http.Reques
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetGame(w, r, gameId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// FinishGame operation middleware
+func (siw *ServerInterfaceWrapper) FinishGame(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "gameId" -------------
+	var gameId GameId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "gameId", r.PathValue("gameId"), &gameId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "gameId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.FinishGame(w, r, gameId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -1266,6 +1521,20 @@ func (siw *ServerInterfaceWrapper) UnlinkIdentity(w http.ResponseWriter, r *http
 	handler.ServeHTTP(w, r)
 }
 
+// UpdatePrefs operation middleware
+func (siw *ServerInterfaceWrapper) UpdatePrefs(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpdatePrefs(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // GetMyProfile operation middleware
 func (siw *ServerInterfaceWrapper) GetMyProfile(w http.ResponseWriter, r *http.Request) {
 
@@ -1311,6 +1580,32 @@ func (siw *ServerInterfaceWrapper) GetDemoPanorama(w http.ResponseWriter, r *htt
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetDemoPanorama(w, r, ref)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetPlace operation middleware
+func (siw *ServerInterfaceWrapper) GetPlace(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "slug" -------------
+	var slug Slug
+
+	err = runtime.BindStyledParameterWithOptions("simple", "slug", r.PathValue("slug"), &slug, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "slug", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetPlace(w, r, slug)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -1560,14 +1855,17 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/auth/logout", wrapper.Logout)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/me/profile", wrapper.GetMyProfile)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/me/profile", wrapper.UpdateProfile)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/me/prefs", wrapper.UpdatePrefs)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/me/identities/unlink", wrapper.UnlinkIdentity)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/users/{userId}", wrapper.GetProfile)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/users/{userId}/report", wrapper.ReportUser)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/maps", wrapper.ListMaps)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/maps/{slug}", wrapper.GetMap)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/places/{slug}", wrapper.GetPlace)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/places/{slug}/shape", wrapper.GetPlaceShape)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/games", wrapper.CreateGame)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/games/{gameId}", wrapper.GetGame)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/games/{gameId}/finish", wrapper.FinishGame)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/games/{gameId}/rounds", wrapper.NextRound)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/games/{gameId}/rounds/{n}/shown", wrapper.RoundShown)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/games/{gameId}/rounds/{n}/fail", wrapper.RoundFailed)

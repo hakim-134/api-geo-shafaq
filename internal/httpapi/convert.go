@@ -33,31 +33,57 @@ func textPtr(t *places.Text) *oapi.Text {
 
 func point(p geo.Point) oapi.LatLon { return oapi.LatLon{Lat: p.Lat, Lon: p.Lon} }
 
+// placeView is what map summaries and place cards need besides the map: the place tree,
+// and the player's rounds when progress is wanted.
+type placeView struct {
+	tree     *places.Tree
+	rounds   []places.Round
+	progress bool
+}
+
+func placeRef(p *places.Place) *oapi.PlaceRef {
+	if p == nil {
+		return nil
+	}
+	return &oapi.PlaceRef{Slug: p.Slug, Kind: oapi.PlaceRefKind(p.Kind), Name: text(p.Name), Map: maps.PlaceMap(p.Slug)}
+}
+
+func progressOut(p places.Progress) oapi.Progress {
+	return oapi.Progress{Unit: oapi.ProgressUnit(p.Unit), Total: p.Total, Seen: p.Seen, Learned: p.Learned}
+}
+
+func placeCard(p *places.Place, pv placeView) oapi.PlaceCard {
+	out := oapi.PlaceCard{
+		Slug: p.Slug, Kind: oapi.PlaceCardKind(p.Kind), Name: text(p.Name), Map: maps.PlaceMap(p.Slug),
+		Outline: p.Outline, Panoramas: p.Panoramas, Places: len(p.Playable()),
+		Progress: progressOut(p.Progress(pv.rounds)),
+	}
+	if p.Banner != "" {
+		out.Banner, out.BannerCredit = &p.Banner, &p.BannerCredit
+	}
+	return out
+}
+
 // mapSummary counts only the players' providers (allowed), never test ones.
-func mapSummary(m *maps.Map, allowed map[string]bool, seen map[int64]bool) oapi.MapSummary {
+func mapSummary(m *maps.Map, allowed map[string]bool, reg *provider.Registry, pv placeView) oapi.MapSummary {
 	shown := m.Shown(allowed)
+	canMove := reg.CanMove(allowed)
 	out := oapi.MapSummary{
 		Slug: m.Slug, Name: text(m.Name), Description: text(m.Desc), Official: m.Official,
 		Panoramas: shown.Panoramas, Groups: shown.Groups, Bbox: m.BBox[:], SizeKm: m.SizeKm,
-		Rules: rulesOut(m.Rules), Providers: shown.Providers,
+		Rules: rulesOut(m.Rules), Providers: shown.Providers, CanMove: &canMove,
 	}
 	if m.Outline != "" {
 		out.Outline = &m.Outline
 	}
 	if m.Pick.StreetsOnly {
-		streets := true
-		out.Streets = &streets
 		out.Groups = shown.Streets
-		if seen != nil {
-			n := 0
-			counted := map[int64]bool{}
-			for _, c := range m.Cands {
-				if allowed[c.Provider] && seen[c.StreetID] && !counted[c.StreetID] {
-					counted[c.StreetID] = true
-					n++
-				}
-			}
-			out.Seen = &n
+	}
+	if p := m.Place(pv.tree); p != nil {
+		out.Place, out.Parent = placeRef(p), placeRef(p.Parent)
+		if pv.progress {
+			pr := progressOut(p.Progress(pv.rounds))
+			out.Progress = &pr
 		}
 	}
 	return out
@@ -70,28 +96,41 @@ func rulesOut(r rules.Rules) oapi.Rules {
 	}
 	return oapi.Rules{
 		Rounds: r.Rounds, TimeSec: r.TimeSec, Movement: oapi.Movement(r.Movement),
-		Hints:   oapi.HintRule{Count: r.Hints.Count, Per: oapi.HintRulePer(r.Hints.Per), Cost: r.Hints.Cost},
+		Hints:   hintRuleOut(r.Hints),
 		Compass: r.Compass, Providers: providers, ScoreScale: r.ScoreScale,
 		PanoLabels: r.PanoLabels, MapLabels: r.MapLabels,
 	}
+}
+
+func hintRuleOut(h rules.Hints) oapi.HintRule {
+	out := oapi.HintRule{Count: h.Count, Per: oapi.HintRulePer(h.Per), Cost: h.Cost}
+	if h.Kind != rules.HintAuto {
+		k := oapi.HintRuleKind(h.Kind)
+		out.Kind = &k
+	}
+	return out
 }
 
 func rulesIn(r *oapi.Rules) *rules.Rules {
 	if r == nil {
 		return nil
 	}
+	hints := rules.Hints{Count: r.Hints.Count, Per: rules.HintPer(r.Hints.Per), Cost: r.Hints.Cost}
+	if r.Hints.Kind != nil {
+		hints.Kind = rules.HintKind(*r.Hints.Kind)
+	}
 	return &rules.Rules{
 		Rounds: r.Rounds, TimeSec: r.TimeSec, Movement: rules.Movement(r.Movement),
-		Hints:   rules.Hints{Count: r.Hints.Count, Per: rules.HintPer(r.Hints.Per), Cost: r.Hints.Cost},
+		Hints:   hints,
 		Compass: r.Compass, Providers: r.Providers, ScoreScale: r.ScoreScale,
 		PanoLabels: r.PanoLabels, MapLabels: r.MapLabels,
 	}
 }
 
 // gameOut describes the map as this game plays it: counted for the game's providers.
-func gameOut(g *game.Game, allowed map[string]bool, player oapi.PublicUser) oapi.Game {
+func gameOut(g *game.Game, reg *provider.Registry, tree *places.Tree, player oapi.PublicUser) oapi.Game {
 	out := oapi.Game{
-		Id: g.ID, Player: player, Map: mapSummary(g.Map, allowed, nil), Rules: rulesOut(g.Rules), Status: oapi.GameStatus(g.Status),
+		Id: g.ID, Player: player, Map: mapSummary(g.Map, reg.Allowed(g.Rules.Providers), reg, placeView{tree: tree}), Rules: rulesOut(g.Rules), Status: oapi.GameStatus(g.Status),
 		StartedAt: g.StartedAt, FinishedAt: g.FinishedAt, Total: g.Total, Max: g.Max(),
 		Rounds: make([]oapi.Round, 0, len(g.Rounds)),
 	}
@@ -150,10 +189,17 @@ func viewOut(v provider.View) oapi.PanoView {
 }
 
 func hintOut(h game.Hint) oapi.Hint {
-	return oapi.Hint{
-		Kind: oapi.HintKind(h.Kind), Text: text(h.Text),
-		Circle: oapi.Circle{Center: point(h.Center), RadiusKm: h.RadiusKm},
+	out := oapi.Hint{Kind: oapi.HintKind(h.Kind)}
+	if h.Text != (places.Text{}) {
+		out.Text = textPtr(&h.Text)
 	}
+	if h.Place != "" {
+		out.Place = &h.Place
+	}
+	if h.RadiusKm > 0 {
+		out.Circle = &oapi.Circle{Center: point(h.Center), RadiusKm: h.RadiusKm}
+	}
+	return out
 }
 
 func resultOut(r *game.Result) oapi.RoundResult {

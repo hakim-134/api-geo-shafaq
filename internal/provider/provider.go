@@ -127,3 +127,13 @@ func (r *Registry) Allowed(wanted []string) map[string]bool {
 	}
 	return out
 }
+
+// CanMove: one of these providers lets the player walk, so the Move rule means something.
+func (r *Registry) CanMove(allowed map[string]bool) bool {
+	for name := range allowed {
+		if p, ok := r.Get(name); ok && p.Capabilities().Move {
+			return true
+		}
+	}
+	return false
+}

@@ -41,11 +41,11 @@ container, migrations at start, then the worker and the API on :8131).
 | `cmd/worker` | background jobs (River, in Postgres): Yandex usage warning, cleanup; the players' Telegram bot |
 | `cmd/tools` | `migrate`, `places`, `v0`, `demo`, `maps`, `tag`, `stats`, `google`, `setup`; `reports`, `ban`, `unban` (moderation) |
 | `internal/game` | solo games: round picking, the clock, hints, scoring |
-| `internal/maps` | maps (the official four for now) and the round picker |
+| `internal/maps` | maps: the official four, and every place's own map (`place-<slug>`, made the first time someone picks the place); the round picker |
 | `internal/provider` | the panorama providers behind one interface: `yandex`, `google`, `demo`. `PROVIDERS` are what players get (and what the menu counts); `TEST_PROVIDERS` play only in games that name them; `DAILY_CAPS` are each one's daily budget |
 | `internal/platform` | logging, and error tracking: Error lines also go to GlitchTip when `GLITCHTIP_DSN` is set |
 | `deploy/` | the server: Caddy, Prometheus, Loki/Alloy, Grafana (dashboard), the db image with pgBackRest, `deploy.sh`, `env.example` |
-| `internal/places` | the place tree from OSM, outlines, "where is this point" |
+| `internal/places` | the place tree from OSM, outlines, "where is this point"; panoramas per place and the player's progress there |
 | `internal/score`, `internal/rules` | the score formula and the one rule set |
 | `internal/players` | guests (🐼_42), accounts, sessions, merging, the name filter |
 | `internal/auth` | checks Telegram's and Google's sign-in proofs (Mini App `initData`, Google ID tokens) |
@@ -73,6 +73,9 @@ this device's session; an account gets a merge offer that the player confirms
 (`/v1/auth/merge`), after which everything of the other account (games, identities, its
 devices' sessions) belongs to this one. The last identity cannot be unlinked.
 
+Preferences (`/v1/me/prefs`, the compass style for now) are kept on the player, in
+`users.prefs`, so every device gets them; they come back with `/v1/me`.
+
 Names: 2–24 characters, checked by the name filter (`internal/players/names.go`: rude words in
 Uzbek, Russian and English in either script or with digits for letters, and staff-like names).
 A player can report another one from their page; `shafaq-tools reports` lists the reports,
@@ -92,12 +95,27 @@ one program may read a bot's messages: the laptop and the server must not share 
 2. `.../shown`: the panorama is on screen and the clock starts (at the latest a minute after
    step 1). For Yandex the browser reports the panorama it actually opened; it must be within
    the map's snap distance, and the round is scored against it.
-3. `.../hint`: the district or region, and a circle that holds the place; each next hint halves it.
+3. `.../hint`: hints start where the rules say (`hints.kind`) and narrow down: the region, then
+   the district (each named, its outline shown on the map), then a circle that holds the place,
+   each next one half the last. A name that tells nothing on this map is skipped.
 4. `.../guess`: scored here, `5000 · e^(−10·d / (D·scale))`, D = the map's size. A guess more
    than 3 s after the deadline scores 0.
 
+A game with `rounds: 0` is endless: it goes on until the player calls `/finish` (after any
+round); endless games stay out of the best score. `movement: move` plays as `nomove` where the
+game's panoramas cannot walk.
+
 A viewer that cannot open a panorama calls `.../fail`; the round gets another one, and a
 panorama that fails three times is retired.
+
+## Places
+
+`GET /v1/places/{slug}` (start at `uzbekistan`) is the place picker: the place, where it is,
+and the places inside it, each with its panoramas on the players' providers and the player's
+progress. Progress counts what the place is about: named streets (Tashkent and its districts),
+districts (a region), regions (the country) or single spots. Seen = played a round there;
+learned = a street or spot guessed within 500 m, a district or region with the pin inside it.
+Maps of one place carry the same progress, and the place around it (`parent`) for "go wider".
 
 ## Yandex usage
 

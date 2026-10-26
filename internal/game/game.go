@@ -80,7 +80,19 @@ type Game struct {
 	Rounds     []Round
 }
 
-func (g *Game) Max() int { return g.Rules.Rounds * score.Max }
+// Max is the best possible total: of the rounds played so far, in an endless game.
+func (g *Game) Max() int {
+	if !g.Rules.Endless() {
+		return g.Rules.Rounds * score.Max
+	}
+	n := 0
+	for _, r := range g.Rounds {
+		if r.Result != nil {
+			n++
+		}
+	}
+	return n * score.Max
+}
 
 // HintsLeft in the game, for per-game hint rules.
 func (g *Game) HintsLeft() int { return g.Rules.HintsLeft(0, g.HintsUsed) }
@@ -96,9 +108,12 @@ type Round struct {
 	Result    *Result
 }
 
+// Hint names the region or district (Place is its slug, for its outline on the map), or
+// draws a circle that holds the place (RadiusKm > 0). Hints from before PLAN 4.4 do both.
 type Hint struct {
-	Kind     string      `json:"kind"` // district | region
+	Kind     string      `json:"kind"` // region | district | circle
 	Text     places.Text `json:"text"`
+	Place    string      `json:"place,omitempty"`
 	Center   geo.Point   `json:"center"`
 	RadiusKm float64     `json:"radiusKm"`
 }
@@ -135,14 +150,18 @@ func (s *Service) Create(ctx context.Context, userID uuid.UUID, slug string, r *
 		return nil, ErrBadInput
 	}
 	allowed := s.Reg.Allowed(rs.Providers)
-	if m.Count(allowed) < rs.Rounds {
+	if rs.Movement == rules.Move && !s.Reg.CanMove(allowed) {
+		rs.Movement = rules.NoMove // offered only where the panoramas can do it
+	}
+	need := max(rs.Rounds, 1) // an endless game needs one to start
+	if m.Count(allowed) < need {
 		return nil, ErrNoPanorama
 	}
 	open, err := s.uncapped(ctx, allowed)
 	if err != nil {
 		return nil, err
 	}
-	if m.Count(open) < rs.Rounds {
+	if m.Count(open) < need {
 		return nil, ErrDailyCap
 	}
 	rulesJSON, _ := json.Marshal(rs)
@@ -228,7 +247,7 @@ func (s *Service) round(g *Game, r store.GameRoundsRow) (Round, error) {
 			Score:     int(deref(r.Score)),
 			HintsUsed: len(rd.Hints),
 			Late:      deref(r.Late),
-			GameOver:  int(r.N) >= g.Rules.Rounds,
+			GameOver:  g.Rules.Last(int(r.N)),
 		}
 		if r.HasGuess {
 			res.Guess = &geo.Point{Lat: r.GuessLat, Lon: r.GuessLon}
@@ -308,7 +327,7 @@ func (s *Service) NextRound(ctx context.Context, userID, id uuid.UUID) (*Round, 
 			out = &g.Rounds[n-1]
 			return nil
 		}
-		if len(g.Rounds) >= g.Rules.Rounds {
+		if g.Rules.Last(len(g.Rounds)) {
 			return ErrGameOver
 		}
 		n := len(g.Rounds) + 1
@@ -317,6 +336,13 @@ func (s *Service) NextRound(ctx context.Context, userID, id uuid.UUID) (*Round, 
 			return err
 		}
 		c, near, heading, err := s.pick(ctx, q, g, seed, n, 0, nil)
+		if errors.Is(err, ErrNoPanorama) && g.Rules.Endless() && n > 1 {
+			// an endless game that has shown every panorama of its map is done
+			if err := q.FinishGame(ctx, id); err != nil {
+				return err
+			}
+			return ErrGameOver
+		}
 		if err != nil {
 			return err
 		}
@@ -537,15 +563,26 @@ func (s *Service) Hint(ctx context.Context, userID, id uuid.UUID, n int) (*Hint,
 		}
 		row := rows[len(rows)-1]
 		actual := geo.Point{Lat: row.ActualLat, Lon: row.ActualLon}
-		info, err := places.Lookup(ctx, q, actual)
-		if err != nil {
-			return err
-		}
 		seed, err := s.seed(ctx, q, id)
 		if err != nil {
 			return err
 		}
-		h := makeHint(g.Map.SizeKm, len(rd.Hints), info, actual, rng(seed, n, 1000+len(rd.Hints)))
+		r := rng(seed, n, 1000+len(rd.Hints))
+		var h Hint
+		if g.Rules.Hints.Kind == rules.HintAuto {
+			info, err := places.Lookup(ctx, q, actual)
+			if err != nil {
+				return err
+			}
+			h = makeHint(g.Map.SizeKm, len(rd.Hints), info, actual, r)
+		} else {
+			at, err := q.PlacesAt(ctx, store.PlacesAtParams{Lat: actual.Lat, Lon: actual.Lon})
+			if err != nil {
+				return err
+			}
+			region, district := hintLevels(at)
+			h = nextHint(g.Rules.Hints.Kind, g.Map.SizeKm, len(rd.Hints), region, district, actual, r)
+		}
 		hints := append(rd.Hints, h)
 		hintsJSON, _ := json.Marshal(hints)
 		if err := q.UpsertHints(ctx, store.UpsertHintsParams{GameID: id, N: int32(n), UserID: userID, Hints: hintsJSON}); err != nil {
@@ -560,6 +597,60 @@ func (s *Service) Hint(ctx context.Context, userID, id uuid.UUID, n int) (*Hint,
 	return out, err
 }
 
+// hintLevel is a place a hint can name.
+type hintLevel struct {
+	kind   string // region | district
+	slug   string
+	name   places.Text
+	sizeKm float64
+}
+
+// hintLevels are the region and the district (or town) holding a point, if any.
+func hintLevels(at []store.PlacesAtRow) (region, district *hintLevel) {
+	for _, pl := range at { // smallest first
+		lv := &hintLevel{slug: pl.Slug, name: places.NewText(pl.NameUz, pl.NameRu, pl.NameEn), sizeKm: pl.SizeKm}
+		switch {
+		case pl.Kind == "region" || pl.Kind == "city" && pl.ParentKind == "country":
+			if region == nil {
+				lv.kind = "region"
+				region = lv
+			}
+		case (pl.Kind == "district" || pl.Kind == "city") && region == nil && district == nil:
+			lv.kind = "district"
+			district = lv
+		}
+	}
+	return region, district
+}
+
+// nextHint is hint i of a round. Hints start where the rule says and narrow down: the
+// region, then the district, then circles, each half the last. A name that would not
+// narrow anything down on this map (the region on a Tashkent map, the district on its own
+// map) is skipped.
+func nextHint(kind rules.HintKind, mapKm float64, i int, region, district *hintLevel, actual geo.Point, r *rand.Rand) Hint {
+	var ladder []*hintLevel
+	useful := func(l *hintLevel) bool { return l != nil && l.sizeKm < mapKm*0.8 }
+	if kind == rules.HintRegion && useful(region) {
+		ladder = append(ladder, region)
+	}
+	if (kind == rules.HintRegion || kind == rules.HintDistrict) && useful(district) {
+		ladder = append(ladder, district)
+	}
+	if i < len(ladder) {
+		l := ladder[i]
+		return Hint{Kind: l.kind, Text: l.name, Place: l.slug}
+	}
+	// v0's circle: 4% of the map's size, at least 1 km; inside a named place, a quarter of it
+	base := math.Max(mapKm*0.04, 1)
+	if len(ladder) > 0 {
+		base = math.Min(base, math.Max(ladder[len(ladder)-1].sizeKm*0.25, 0.5))
+	}
+	h := Hint{Kind: "circle", RadiusKm: base / math.Pow(2, float64(i-len(ladder)))}
+	h.Center = geo.Offset(actual, h.RadiusKm*0.6*r.Float64(), r.Float64()*2*math.Pi)
+	return h
+}
+
+// makeHint is the hint of games from before PLAN 4.4: a name and a circle at once.
 func makeHint(sizeKm float64, i int, info places.Info, actual geo.Point, r *rand.Rand) Hint {
 	h := Hint{Kind: "region"}
 	switch {
@@ -628,7 +719,7 @@ func (s *Service) Guess(ctx context.Context, userID, id uuid.UUID, n int, pos *g
 			return err
 		}
 		res.Total = g.Total + res.Score
-		if n >= g.Rules.Rounds {
+		if g.Rules.Last(n) {
 			res.GameOver = true
 			if err := q.FinishGame(ctx, id); err != nil {
 				return err
@@ -644,6 +735,32 @@ func (s *Service) Guess(ctx context.Context, userID, id uuid.UUID, n int, pos *g
 		metrics.RoundsScored.Inc()
 	}
 	return out, err
+}
+
+// Finish ends a game when the player says so: an endless one, after any round. A game
+// without a single guessed round is dropped (abandoned), not kept as a 0.
+func (s *Service) Finish(ctx context.Context, userID, id uuid.UUID) (*Game, error) {
+	err := s.inGame(ctx, userID, id, func(q *store.Queries, g *Game) error {
+		if g.Status != "playing" {
+			return nil
+		}
+		played := 0
+		for _, r := range g.Rounds {
+			if r.Result != nil {
+				played++
+			} else if r.ShownAt != nil {
+				return ErrWrongPhase // a round is on: guess first (or let the time run out)
+			}
+		}
+		if played == 0 {
+			return q.AbandonGame(ctx, id)
+		}
+		return q.FinishGame(ctx, id)
+	})
+	if err != nil {
+		return nil, err
+	}
+	return s.Get(ctx, userID, id)
 }
 
 // History is a page of a player's finished games, newest first.
@@ -665,11 +782,9 @@ func (s *Service) History(ctx context.Context, userID uuid.UUID, before *time.Ti
 	}
 	out := make([]ListItem, 0, len(rows))
 	for _, r := range rows {
-		var rs rules.Rules
-		_ = json.Unmarshal(r.Rules, &rs)
 		out = append(out, ListItem{
 			ID: r.ID, MapSlug: r.MapSlug, MapName: places.NewText(r.NameUz, r.NameRu, r.NameEn),
-			Status: r.Status, StartedAt: r.StartedAt, FinishedAt: r.FinishedAt, Total: int(r.Total), Rounds: rs.Rounds,
+			Status: r.Status, StartedAt: r.StartedAt, FinishedAt: r.FinishedAt, Total: int(r.Total), Rounds: int(r.Played),
 		})
 	}
 	return out, nil

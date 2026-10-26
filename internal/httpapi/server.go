@@ -19,6 +19,7 @@ import (
 	"github.com/hakim-134/api-geo-shafaq/internal/httpapi/oapi"
 	"github.com/hakim-134/api-geo-shafaq/internal/kv"
 	"github.com/hakim-134/api-geo-shafaq/internal/maps"
+	"github.com/hakim-134/api-geo-shafaq/internal/places"
 	"github.com/hakim-134/api-geo-shafaq/internal/players"
 	"github.com/hakim-134/api-geo-shafaq/internal/provider"
 	"github.com/hakim-134/api-geo-shafaq/internal/store"
@@ -31,6 +32,7 @@ type Server struct {
 	players *players.Service
 	games   *game.Service
 	catalog *maps.Catalog
+	places  *places.Cache
 	demo    provider.Demo
 	limit   kv.Limiter
 	version string
@@ -51,6 +53,7 @@ type Deps struct {
 	Players *players.Service
 	Games   *game.Service
 	Catalog *maps.Catalog
+	Places  *places.Cache
 	Demo    provider.Demo
 }
 
@@ -58,7 +61,7 @@ type Deps struct {
 func New(d Deps) http.Handler {
 	s := &Server{
 		db: d.DB, valkey: d.Valkey, q: store.New(d.DB), players: d.Players, games: d.Games,
-		catalog: d.Catalog, demo: d.Demo, limit: kv.Limiter{C: d.Valkey}, version: d.Config.Version,
+		catalog: d.Catalog, places: d.Places, demo: d.Demo, limit: kv.Limiter{C: d.Valkey}, version: d.Config.Version,
 		cookieName: "sg_session", cookieSecure: d.Config.CookieSecure, cookieDomain: d.Config.CookieDomain,
 		sessionTTL: d.Config.SessionTTL, trustProxy: d.Config.TrustProxy,
 		bot:    &telegramBot{token: d.Config.TelegramBotToken, client: &http.Client{Timeout: 10 * time.Second}},
@@ -100,7 +103,7 @@ func fail(w http.ResponseWriter, r *http.Request, err error) {
 	switch {
 	case errors.Is(err, game.ErrNotFound), errors.Is(err, maps.ErrNotFound), errors.Is(err, players.ErrNotFound):
 		status, code = http.StatusNotFound, "not_found"
-	case errors.Is(err, game.ErrBadInput), errors.Is(err, players.ErrBadAvatar):
+	case errors.Is(err, game.ErrBadInput), errors.Is(err, players.ErrBadAvatar), errors.Is(err, players.ErrBadPrefs):
 		status, code = http.StatusBadRequest, "bad_input"
 	case errors.Is(err, players.ErrBadName):
 		status, code = http.StatusBadRequest, "bad_name"

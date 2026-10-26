@@ -24,6 +24,7 @@ type Game struct {
 	HintsUsed  int32
 	StartedAt  time.Time
 	FinishedAt *time.Time
+	Played     int32
 }
 
 type Guess struct {
@@ -192,4 +193,5 @@ type User struct {
 	LastSeenAt time.Time
 	BannedAt   *time.Time
 	BanReason  string
+	Prefs      json.RawMessage
 }

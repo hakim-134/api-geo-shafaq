@@ -152,3 +152,28 @@ func TestAccounts(t *testing.T) {
 }
 
 func ptr(s string) *string { return &s }
+
+func TestPrefs(t *testing.T) {
+	pool := testdb.New(t)
+	ctx := context.Background()
+	s := &Service{Pool: pool, Q: store.New(pool), TTL: time.Hour}
+	u, token, err := s.NewGuest(ctx, "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	u, err = s.UpdatePrefs(ctx, u, Prefs{Compass: "mnemonic"})
+	if err != nil || UserPrefs(u).Compass != "mnemonic" {
+		t.Fatalf("saved: %v %+v", err, UserPrefs(u))
+	}
+	// another device with the same account sees it
+	if again, err := s.FromToken(ctx, token); err != nil || UserPrefs(again).Compass != "mnemonic" {
+		t.Fatalf("from the session: %v %+v", err, UserPrefs(again))
+	}
+	u, _ = s.UpdatePrefs(ctx, u, Prefs{}) // nothing sent: nothing changes
+	if UserPrefs(u).Compass != "mnemonic" {
+		t.Fatal("an empty update cleared the compass")
+	}
+	if _, err := s.UpdatePrefs(ctx, u, Prefs{Compass: "sundial"}); !errors.Is(err, ErrBadPrefs) {
+		t.Fatalf("unknown style: %v", err)
+	}
+}

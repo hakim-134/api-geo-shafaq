@@ -101,7 +101,7 @@ func (s *Service) FromToken(ctx context.Context, token string) (store.User, erro
 	}
 	u := store.User{
 		ID: row.ID, Name: row.Name, Avatar: row.Avatar, Guest: row.Guest, CreatedAt: row.CreatedAt,
-		LastSeenAt: row.LastSeenAt, BannedAt: row.BannedAt, BanReason: row.BanReason,
+		LastSeenAt: row.LastSeenAt, BannedAt: row.BannedAt, BanReason: row.BanReason, Prefs: row.Prefs,
 	}
 	if time.Since(row.SessionUsedAt) > time.Hour {
 		if err := s.Q.TouchSession(ctx, store.TouchSessionParams{TokenHash: h, ExpiresAt: time.Now().Add(s.TTL)}); err != nil {

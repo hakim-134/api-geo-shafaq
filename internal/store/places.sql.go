@@ -7,6 +7,8 @@ package store
 
 import (
 	"context"
+
+	"github.com/google/uuid"
 )
 
 const countPlaces = `-- name: CountPlaces :many
@@ -68,6 +70,61 @@ SET parent_id = (SELECT q.id FROM places q
 func (q *Queries) LinkPlaceParents(ctx context.Context) error {
 	_, err := q.db.Exec(ctx, linkPlaceParents)
 	return err
+}
+
+const listPlaces = `-- name: ListPlaces :many
+SELECT id, coalesce(parent_id, 0)::bigint AS parent_id, kind, slug, name_uz, name_ru, name_en,
+       size_km, outline_svg, coalesce(banner_url, '')::text AS banner_url,
+       coalesce(banner_credit, '')::text AS banner_credit
+FROM places
+ORDER BY id
+`
+
+type ListPlacesRow struct {
+	ID           int64
+	ParentID     int64
+	Kind         string
+	Slug         string
+	NameUz       string
+	NameRu       string
+	NameEn       string
+	SizeKm       float64
+	OutlineSvg   string
+	BannerUrl    string
+	BannerCredit string
+}
+
+// The whole place tree, for the place picker.
+func (q *Queries) ListPlaces(ctx context.Context) ([]ListPlacesRow, error) {
+	rows, err := q.db.Query(ctx, listPlaces)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListPlacesRow{}
+	for rows.Next() {
+		var i ListPlacesRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.ParentID,
+			&i.Kind,
+			&i.Slug,
+			&i.NameUz,
+			&i.NameRu,
+			&i.NameEn,
+			&i.SizeKm,
+			&i.OutlineSvg,
+			&i.BannerUrl,
+			&i.BannerCredit,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const listPlacesForOutline = `-- name: ListPlacesForOutline :many
@@ -184,6 +241,41 @@ func (q *Queries) PlaceBySlug(ctx context.Context, slug string) (PlaceBySlugRow,
 	return i, err
 }
 
+const placeCounts = `-- name: PlaceCounts :many
+SELECT pid::bigint AS place_id, count(*)::int AS panoramas,
+       count(DISTINCT p.street_id)::int AS streets
+FROM panoramas p, unnest(p.place_ids) AS pid
+WHERE p.status = 'active' AND p.provider = ANY ($1::text[])
+GROUP BY pid
+`
+
+type PlaceCountsRow struct {
+	PlaceID   int64
+	Panoramas int32
+	Streets   int32
+}
+
+// Active panoramas and named streets with one, per place, on the given providers.
+func (q *Queries) PlaceCounts(ctx context.Context, providers []string) ([]PlaceCountsRow, error) {
+	rows, err := q.db.Query(ctx, placeCounts, providers)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []PlaceCountsRow{}
+	for rows.Next() {
+		var i PlaceCountsRow
+		if err := rows.Scan(&i.PlaceID, &i.Panoramas, &i.Streets); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const placeShape = `-- name: PlaceShape :one
 SELECT slug, ST_AsGeoJSON(geom_simple, 4)::text AS geojson, outline_svg FROM places WHERE slug = $1
 `
@@ -202,7 +294,8 @@ func (q *Queries) PlaceShape(ctx context.Context, slug string) (PlaceShapeRow, e
 }
 
 const placesAt = `-- name: PlacesAt :many
-SELECT id, kind, slug, name_uz, name_ru, name_en, size_km
+SELECT id, kind, slug, name_uz, name_ru, name_en, size_km,
+       coalesce((SELECT q.kind FROM places q WHERE q.id = places.parent_id), '')::text AS parent_kind
 FROM places
 WHERE ST_Contains(geom, ST_SetSRID(ST_MakePoint($1::float8, $2::float8), 4326))
 ORDER BY size_km
@@ -214,13 +307,14 @@ type PlacesAtParams struct {
 }
 
 type PlacesAtRow struct {
-	ID     int64
-	Kind   string
-	Slug   string
-	NameUz string
-	NameRu string
-	NameEn string
-	SizeKm float64
+	ID         int64
+	Kind       string
+	Slug       string
+	NameUz     string
+	NameRu     string
+	NameEn     string
+	SizeKm     float64
+	ParentKind string
 }
 
 // The places holding a point, smallest first.
@@ -241,6 +335,7 @@ func (q *Queries) PlacesAt(ctx context.Context, arg PlacesAtParams) ([]PlacesAtR
 			&i.NameRu,
 			&i.NameEn,
 			&i.SizeKm,
+			&i.ParentKind,
 		); err != nil {
 			return nil, err
 		}
@@ -350,4 +445,50 @@ func (q *Queries) UpsertStreet(ctx context.Context, arg UpsertStreetParams) (int
 	var id int64
 	err := row.Scan(&id)
 	return id, err
+}
+
+const userRoundPlaces = `-- name: UserRoundPlaces :many
+SELECT p.id AS panorama_id, p.place_ids, coalesce(p.street_id, 0)::bigint AS street_id, g.km,
+       coalesce((SELECT array_agg(pl.id) FROM places pl WHERE ST_Contains(pl.geom, g.pos)),
+                '{}')::bigint[] AS guess_places
+FROM guesses g
+JOIN rounds r ON r.game_id = g.game_id AND r.n = g.n
+JOIN panoramas p ON p.id = r.panorama_id
+WHERE g.user_id = $1 AND g.guessed_at IS NOT NULL
+`
+
+type UserRoundPlacesRow struct {
+	PanoramaID  int64
+	PlaceIds    []int64
+	StreetID    int64
+	Km          *float64
+	GuessPlaces []int64
+}
+
+// Every round the player guessed: the panorama's places and street, how far off the guess
+// was, and the places the guess landed in. For progress per place.
+func (q *Queries) UserRoundPlaces(ctx context.Context, userID uuid.UUID) ([]UserRoundPlacesRow, error) {
+	rows, err := q.db.Query(ctx, userRoundPlaces, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []UserRoundPlacesRow{}
+	for rows.Next() {
+		var i UserRoundPlacesRow
+		if err := rows.Scan(
+			&i.PanoramaID,
+			&i.PlaceIds,
+			&i.StreetID,
+			&i.Km,
+			&i.GuessPlaces,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }

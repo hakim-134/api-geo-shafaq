@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"slices"
 	"strings"
@@ -29,6 +30,7 @@ var (
 	ErrNotFound     = errors.New("not_found")
 	ErrLastIdentity = errors.New("last_identity")
 	ErrBadAvatar    = errors.New("bad_input")
+	ErrBadPrefs     = errors.New("bad_input")
 )
 
 // Outcome of a sign-in.
@@ -208,6 +210,30 @@ func (s *Service) UpdateProfile(ctx context.Context, cur store.User, name, avata
 		p.Avatar = *avatar
 	}
 	return s.Q.SetProfile(ctx, p)
+}
+
+// Prefs are the player's own preferences, kept on the server so every device gets them.
+// Empty fields are not set.
+type Prefs struct {
+	Compass string `json:"compass,omitempty"` // classic | modern | mnemonic
+}
+
+var CompassStyles = []string{"classic", "modern", "mnemonic"}
+
+// UserPrefs reads a player's preferences.
+func UserPrefs(u store.User) Prefs {
+	var p Prefs
+	_ = json.Unmarshal(u.Prefs, &p)
+	return p
+}
+
+// UpdatePrefs saves the preferences given, keeping the others.
+func (s *Service) UpdatePrefs(ctx context.Context, cur store.User, p Prefs) (store.User, error) {
+	if p.Compass != "" && !slices.Contains(CompassStyles, p.Compass) {
+		return cur, ErrBadPrefs
+	}
+	b, _ := json.Marshal(p)
+	return s.Q.SetPrefs(ctx, store.SetPrefsParams{ID: cur.ID, Prefs: b})
 }
 
 // StartTelegram makes a one-time code for "sign in with Telegram" through the bot: the game

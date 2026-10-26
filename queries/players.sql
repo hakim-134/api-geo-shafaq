@@ -28,9 +28,10 @@ UPDATE users SET last_seen_at = now() WHERE id = @id;
 DELETE FROM sessions WHERE expires_at < now();
 
 -- name: UserStats :one
+-- Endless games (rules.rounds 0) are left out of the best score: they run up any total.
 SELECT count(*)::int                                     AS games,
-       coalesce(max(g.total), 0)::int                     AS best,
+       coalesce(max(g.total) FILTER (WHERE (g.rules ->> 'rounds')::int > 0), 0)::int AS best,
        coalesce(sum(g.total), 0)::bigint                  AS score_sum,
-       coalesce(sum((g.rules ->> 'rounds')::int), 0)::bigint AS rounds_sum
+       coalesce(sum(g.played), 0)::bigint                 AS rounds_sum
 FROM games g
 WHERE g.user_id = @user_id AND g.status = 'finished';

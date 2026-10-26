@@ -44,7 +44,8 @@ SELECT kind, count(*)::int AS n FROM places GROUP BY kind ORDER BY kind;
 
 -- name: PlacesAt :many
 -- The places holding a point, smallest first.
-SELECT id, kind, slug, name_uz, name_ru, name_en, size_km
+SELECT id, kind, slug, name_uz, name_ru, name_en, size_km,
+       coalesce((SELECT q.kind FROM places q WHERE q.id = places.parent_id), '')::text AS parent_kind
 FROM places
 WHERE ST_Contains(geom, ST_SetSRID(ST_MakePoint(@lon::float8, @lat::float8), 4326))
 ORDER BY size_km;
@@ -79,3 +80,30 @@ ON CONFLICT (kind, name_uz) DO UPDATE SET name_ru = excluded.name_ru, pos = excl
 
 -- name: PlaceShape :one
 SELECT slug, ST_AsGeoJSON(geom_simple, 4)::text AS geojson, outline_svg FROM places WHERE slug = @slug;
+
+-- name: ListPlaces :many
+-- The whole place tree, for the place picker.
+SELECT id, coalesce(parent_id, 0)::bigint AS parent_id, kind, slug, name_uz, name_ru, name_en,
+       size_km, outline_svg, coalesce(banner_url, '')::text AS banner_url,
+       coalesce(banner_credit, '')::text AS banner_credit
+FROM places
+ORDER BY id;
+
+-- name: PlaceCounts :many
+-- Active panoramas and named streets with one, per place, on the given providers.
+SELECT pid::bigint AS place_id, count(*)::int AS panoramas,
+       count(DISTINCT p.street_id)::int AS streets
+FROM panoramas p, unnest(p.place_ids) AS pid
+WHERE p.status = 'active' AND p.provider = ANY (@providers::text[])
+GROUP BY pid;
+
+-- name: UserRoundPlaces :many
+-- Every round the player guessed: the panorama's places and street, how far off the guess
+-- was, and the places the guess landed in. For progress per place.
+SELECT p.id AS panorama_id, p.place_ids, coalesce(p.street_id, 0)::bigint AS street_id, g.km,
+       coalesce((SELECT array_agg(pl.id) FROM places pl WHERE ST_Contains(pl.geom, g.pos)),
+                '{}')::bigint[] AS guess_places
+FROM guesses g
+JOIN rounds r ON r.game_id = g.game_id AND r.n = g.n
+JOIN panoramas p ON p.id = r.panorama_id
+WHERE g.user_id = @user_id AND g.guessed_at IS NOT NULL;

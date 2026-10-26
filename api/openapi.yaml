@@ -270,6 +270,27 @@ paths:
         "400": { $ref: "#/components/responses/Error" }
         "401": { $ref: "#/components/responses/Error" }
 
+  /v1/me/prefs:
+    post:
+      tags: [accounts]
+      operationId: updatePrefs
+      summary: Saves the player's preferences, so every device gets them.
+      description: Only the fields sent change. `bad_input` for an unknown value.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/Prefs" }
+      responses:
+        "200":
+          description: The player
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Me" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "429": { $ref: "#/components/responses/Error" }
+
   /v1/me/identities/unlink:
     post:
       tags: [accounts]
@@ -359,6 +380,24 @@ paths:
               schema: { $ref: "#/components/schemas/MapSummary" }
         "404": { $ref: "#/components/responses/Error" }
 
+  /v1/places/{slug}:
+    get:
+      tags: [maps]
+      operationId: getPlace
+      summary: A place for the place picker, with where it is and what is inside it.
+      description: |
+        Start at `uzbekistan`. Each place counts its panoramas on the players' providers and
+        this player's progress there. Its map (`map`) is playable like any other.
+      parameters:
+        - $ref: "#/components/parameters/Slug"
+      responses:
+        "200":
+          description: The place
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PlaceDetail" }
+        "404": { $ref: "#/components/responses/Error" }
+
   /v1/places/{slug}/shape:
     get:
       tags: [maps]
@@ -409,6 +448,25 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Game" }
         "404": { $ref: "#/components/responses/Error" }
+
+  /v1/games/{gameId}/finish:
+    post:
+      tags: [games]
+      operationId: finishGame
+      summary: Ends the game now, after any round (endless games end this way).
+      description: |
+        Not while a round is on screen (`wrong_phase`): guess first. A game without a single
+        guessed round is dropped (`abandoned`). Finishing a finished game returns it.
+      parameters:
+        - $ref: "#/components/parameters/GameId"
+      responses:
+        "200":
+          description: The finished game
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Game" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
 
   /v1/games/{gameId}/rounds:
     post:
@@ -622,6 +680,16 @@ components:
         avatar: { type: string, description: "An emoji from the curated list", example: "🐼" }
         guest: { type: boolean, description: No way to sign in yet; everything is kept on the server all the same. }
         banned: { type: boolean }
+        prefs: { $ref: "#/components/schemas/Prefs" }
+
+    Prefs:
+      description: The player's own preferences. Absent fields are not set yet (the device's own choice stands).
+      type: object
+      properties:
+        compass:
+          type: string
+          enum: [classic, modern, mnemonic]
+          description: The compass style. Whether a game has a compass at all is its rule.
 
     Stats:
       type: object
@@ -774,6 +842,14 @@ components:
         per:
           type: string
           enum: [game, round]
+        kind:
+          type: string
+          enum: [region, district, circle]
+          description: >-
+            Where a round's hints start: the region's name, the district's, or a circle. Each next
+            hint narrows down (region → district → circles, each half the last); a name that would
+            not narrow anything on this map is skipped. Absent: games from before, a name with a
+            circle.
         cost:
           type: number
           format: double
@@ -786,7 +862,11 @@ components:
       type: object
       required: [rounds, timeSec, movement, hints, compass, providers, scoreScale, panoLabels, mapLabels]
       properties:
-        rounds: { type: integer, minimum: 1, maximum: 20 }
+        rounds:
+          type: integer
+          minimum: 0
+          maximum: 20
+          description: 0 = endless, until the player finishes the game.
         timeSec:
           type: integer
           minimum: 0
@@ -826,12 +906,15 @@ components:
         groups:
           type: integer
           description: Streets (on a street map) or places the panoramas are grouped by.
-        streets:
+        place:
+          $ref: "#/components/schemas/PlaceRef"
+        parent:
+          $ref: "#/components/schemas/PlaceRef"
+        progress:
+          $ref: "#/components/schemas/Progress"
+        canMove:
           type: boolean
-          description: A street map; `groups` counts streets, and progress counts streets seen.
-        seen:
-          type: integer
-          description: Streets this player has already been on (street maps only).
+          description: The map's panoramas let the player walk; otherwise `move` plays as `nomove`.
         bbox:
           type: array
           description: "[west, south, east, north]"
@@ -849,6 +932,65 @@ components:
         outline:
           type: string
           description: The place's outline as a small SVG (maps of one place only).
+
+    PlaceRef:
+      description: A place, by name. On a map, the map's one place (or its parent).
+      type: object
+      required: [slug, kind, name, map]
+      properties:
+        slug: { type: string, example: chilonzor-tumani }
+        kind:
+          type: string
+          enum: [country, region, district, city]
+        name: { $ref: "#/components/schemas/Text" }
+        map: { type: string, description: "The place's own map: `place-<slug>`.", example: place-chilonzor-tumani }
+
+    Progress:
+      description: |
+        How much of a place this player has seen (played a round there) and learned: a street
+        or spot guessed within 500 m, a district or region guessed inside it.
+      type: object
+      required: [unit, total, seen, learned]
+      properties:
+        unit:
+          type: string
+          enum: [street, district, region, spot]
+        total: { type: integer }
+        seen: { type: integer }
+        learned: { type: integer }
+
+    PlaceCard:
+      type: object
+      required: [slug, kind, name, map, outline, panoramas, places, progress]
+      properties:
+        slug: { type: string }
+        kind:
+          type: string
+          enum: [country, region, district, city]
+        name: { $ref: "#/components/schemas/Text" }
+        map: { type: string }
+        outline: { type: string, description: The outline as a small SVG. }
+        banner: { type: string, description: A photo of the place (Wikimedia Commons). }
+        bannerCredit: { type: string }
+        panoramas: { type: integer, description: "Active panoramas, on the players' providers." }
+        places:
+          type: integer
+          description: Places inside it that have panoramas (the picker can go deeper).
+        progress: { $ref: "#/components/schemas/Progress" }
+
+    PlaceDetail:
+      type: object
+      required: [place, path, children]
+      properties:
+        place: { $ref: "#/components/schemas/PlaceCard" }
+        path:
+          type: array
+          description: Where it is, the country first.
+          items: { $ref: "#/components/schemas/PlaceRef" }
+        children:
+          type: array
+          description: The places inside it, those with the most panoramas first.
+          items: { $ref: "#/components/schemas/PlaceCard" }
 
     PlaceShape:
       type: object
@@ -994,14 +1136,18 @@ components:
           $ref: "#/components/schemas/LatLon"
 
     Hint:
+      description: A name (region or district, with its outline on the map), or a circle that holds the place.
       type: object
-      required: [kind, text, circle]
+      required: [kind]
       properties:
         kind:
           type: string
-          enum: [district, region]
+          enum: [district, region, circle]
         text:
           $ref: "#/components/schemas/Text"
+        place:
+          type: string
+          description: The named place's slug, for its outline (`/v1/places/{slug}/shape`).
         circle:
           $ref: "#/components/schemas/Circle"
 

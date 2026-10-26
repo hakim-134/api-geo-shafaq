@@ -19,9 +19,6 @@ import (
 	"github.com/hakim-134/api-geo-shafaq/internal/store"
 )
 
-// learnedKm: a street counts as learned once a guess on it lands this close.
-const learnedKm = 0.5
-
 // telegramBot knows the players' bot. Its username comes from Telegram on first use and is
 // kept once known; until then each use asks again (at most once a minute).
 type telegramBot struct {
@@ -245,6 +242,32 @@ func (s *Server) UpdateProfile(w http.ResponseWriter, r *http.Request) {
 	s.writeMe(w, r, &nu)
 }
 
+func (s *Server) UpdatePrefs(w http.ResponseWriter, r *http.Request) {
+	u := s.player(w, r)
+	if u == nil {
+		return
+	}
+	var body oapi.Prefs
+	if !decode(r, &body) {
+		writeError(w, http.StatusBadRequest, "bad_input")
+		return
+	}
+	// generous: a tap on the compass in a game saves it
+	if !s.allow(w, r, "prefs:"+u.ID.String(), 300, time.Hour) {
+		return
+	}
+	var p players.Prefs
+	if body.Compass != nil {
+		p.Compass = string(*body.Compass)
+	}
+	nu, err := s.players.UpdatePrefs(r.Context(), *u, p)
+	if err != nil {
+		fail(w, r, err)
+		return
+	}
+	s.writeMe(w, r, &nu)
+}
+
 func (s *Server) UnlinkIdentity(w http.ResponseWriter, r *http.Request) {
 	u := s.player(w, r)
 	if u == nil {
@@ -348,7 +371,7 @@ func (s *Server) meOut(ctx context.Context, u store.User) (oapi.Me, error) {
 		return oapi.Me{}, err
 	}
 	me := oapi.Me{
-		User:       oapi.User{Id: u.ID, Name: u.Name, Avatar: u.Avatar, Guest: u.Guest},
+		User:       oapi.User{Id: u.ID, Name: u.Name, Avatar: u.Avatar, Guest: u.Guest, Prefs: prefsOut(players.UserPrefs(u))},
 		Stats:      oapi.Stats{Games: st.Games, Best: st.Best, AvgRound: st.AvgRound},
 		Identities: make([]oapi.Identity, len(ids)),
 	}
@@ -370,7 +393,7 @@ func (s *Server) profileOut(ctx context.Context, u store.User) (oapi.Profile, er
 	if err != nil {
 		return oapi.Profile{}, err
 	}
-	streets, err := s.q.StreetProgress(ctx, store.StreetProgressParams{UserID: u.ID, LearnedKm: learnedKm})
+	streets, err := s.q.StreetProgress(ctx, store.StreetProgressParams{UserID: u.ID, LearnedKm: places.LearnedKm})
 	if err != nil {
 		return oapi.Profile{}, err
 	}
@@ -434,4 +457,13 @@ func (s *Server) gamePlayer(ctx context.Context, id uuid.UUID) (oapi.PublicUser,
 		return oapi.PublicUser{}, err
 	}
 	return publicUser(u), nil
+}
+
+func prefsOut(p players.Prefs) *oapi.Prefs {
+	out := &oapi.Prefs{}
+	if p.Compass != "" {
+		c := oapi.PrefsCompass(p.Compass)
+		out.Compass = &c
+	}
+	return out
 }

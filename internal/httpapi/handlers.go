@@ -11,8 +11,10 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/hakim-134/api-geo-shafaq/internal/game"
 	"github.com/hakim-134/api-geo-shafaq/internal/geo"
 	"github.com/hakim-134/api-geo-shafaq/internal/httpapi/oapi"
+	"github.com/hakim-134/api-geo-shafaq/internal/places"
 	"github.com/hakim-134/api-geo-shafaq/internal/provider"
 )
 
@@ -134,14 +136,14 @@ func (s *Server) ListMaps(w http.ResponseWriter, r *http.Request) {
 		fail(w, r, err)
 		return
 	}
-	seen, err := s.streetsSeen(r)
+	pv, err := s.placeView(r, true)
 	if err != nil {
 		fail(w, r, err)
 		return
 	}
 	out := make([]oapi.MapSummary, 0, len(list))
 	for _, m := range list {
-		out = append(out, mapSummary(m, s.games.Reg.Allowed(nil), seen))
+		out = append(out, mapSummary(m, s.games.Reg.Allowed(nil), s.games.Reg, pv))
 	}
 	writeJSON(w, http.StatusOK, out)
 }
@@ -152,12 +154,33 @@ func (s *Server) GetMap(w http.ResponseWriter, r *http.Request, slug string) {
 		fail(w, r, err)
 		return
 	}
-	seen, err := s.streetsSeen(r)
+	pv, err := s.placeView(r, true)
 	if err != nil {
 		fail(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, mapSummary(m, s.games.Reg.Allowed(nil), seen))
+	writeJSON(w, http.StatusOK, mapSummary(m, s.games.Reg.Allowed(nil), s.games.Reg, pv))
+}
+
+func (s *Server) GetPlace(w http.ResponseWriter, r *http.Request, slug string) {
+	pv, err := s.placeView(r, true)
+	if err != nil {
+		fail(w, r, err)
+		return
+	}
+	p := pv.tree.Get(slug)
+	if p == nil {
+		writeError(w, http.StatusNotFound, "not_found")
+		return
+	}
+	out := oapi.PlaceDetail{Place: placeCard(p, pv), Path: []oapi.PlaceRef{}, Children: []oapi.PlaceCard{}}
+	for _, a := range p.Path() {
+		out.Path = append(out.Path, *placeRef(a))
+	}
+	for _, c := range p.Children {
+		out.Children = append(out.Children, placeCard(c, pv))
+	}
+	writeJSON(w, http.StatusOK, out)
 }
 
 func (s *Server) GetPlaceShape(w http.ResponseWriter, r *http.Request, slug string) {
@@ -181,20 +204,27 @@ func (s *Server) GetPlaceShape(w http.ResponseWriter, r *http.Request, slug stri
 	_, _ = w.Write(b)
 }
 
-func (s *Server) streetsSeen(r *http.Request) (map[int64]bool, error) {
-	u := userFrom(r.Context())
-	if u == nil {
-		return nil, nil
-	}
-	ids, err := s.q.StreetsSeen(r.Context(), u.ID)
+// placeView: the place tree, and with progress the player's rounds (none without a session).
+func (s *Server) placeView(r *http.Request, progress bool) (placeView, error) {
+	t, err := s.places.Get(r.Context())
 	if err != nil {
-		return nil, err
+		return placeView{}, err
 	}
-	seen := make(map[int64]bool, len(ids))
-	for _, id := range ids {
-		seen[id] = true
+	pv := placeView{tree: t, progress: progress}
+	if u := userFrom(r.Context()); u != nil && progress {
+		if pv.rounds, err = places.UserRounds(r.Context(), s.q, u.ID); err != nil {
+			return placeView{}, err
+		}
 	}
-	return seen, nil
+	return pv, nil
+}
+
+func (s *Server) gameOut(r *http.Request, g *game.Game, player oapi.PublicUser) (oapi.Game, error) {
+	t, err := s.places.Get(r.Context())
+	if err != nil {
+		return oapi.Game{}, err
+	}
+	return gameOut(g, s.games.Reg, t, player), nil
 }
 
 // ---------- games ----------
@@ -221,7 +251,30 @@ func (s *Server) CreateGame(w http.ResponseWriter, r *http.Request) {
 		fail(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusCreated, gameOut(g, s.games.Reg.Allowed(g.Rules.Providers), publicUser(*u)))
+	out, err := s.gameOut(r, g, publicUser(*u))
+	if err != nil {
+		fail(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, out)
+}
+
+func (s *Server) FinishGame(w http.ResponseWriter, r *http.Request, id oapi.GameId) {
+	u := s.player(w, r)
+	if u == nil {
+		return
+	}
+	g, err := s.games.Finish(r.Context(), u.ID, id)
+	if err != nil {
+		fail(w, r, err)
+		return
+	}
+	out, err := s.gameOut(r, g, publicUser(*u))
+	if err != nil {
+		fail(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, out)
 }
 
 func (s *Server) GetGame(w http.ResponseWriter, r *http.Request, id oapi.GameId) {
@@ -239,7 +292,12 @@ func (s *Server) GetGame(w http.ResponseWriter, r *http.Request, id oapi.GameId)
 		fail(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, gameOut(g, s.games.Reg.Allowed(g.Rules.Providers), player))
+	out, err := s.gameOut(r, g, player)
+	if err != nil {
+		fail(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, out)
 }
 
 func (s *Server) NextRound(w http.ResponseWriter, r *http.Request, id oapi.GameId) {

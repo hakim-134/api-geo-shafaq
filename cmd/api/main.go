@@ -21,6 +21,7 @@ import (
 	"github.com/hakim-134/api-geo-shafaq/internal/kv"
 	"github.com/hakim-134/api-geo-shafaq/internal/maps"
 	"github.com/hakim-134/api-geo-shafaq/internal/metrics"
+	"github.com/hakim-134/api-geo-shafaq/internal/places"
 	"github.com/hakim-134/api-geo-shafaq/internal/platform"
 	"github.com/hakim-134/api-geo-shafaq/internal/players"
 	"github.com/hakim-134/api-geo-shafaq/internal/provider"
@@ -65,7 +66,8 @@ func run() error {
 		return err
 	}
 	q := store.New(pool)
-	catalog := maps.NewCatalog(q, reg)
+	tree := &places.Cache{Q: q, Providers: reg.Names()}
+	catalog := maps.NewCatalog(q, reg, tree)
 	handler := httpapi.New(httpapi.Deps{
 		Config:  cfg,
 		DB:      pool,
@@ -76,6 +78,7 @@ func run() error {
 			Usage: provider.Usage{Q: q, YandexLimit: cfg.YandexDailyLimit, Caps: cfg.DailyCaps},
 		},
 		Catalog: catalog,
+		Places:  tree,
 		Demo:    demo,
 	})
 

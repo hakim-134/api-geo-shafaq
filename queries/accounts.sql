@@ -25,6 +25,10 @@ UPDATE users SET guest = false WHERE id = @id;
 -- name: SetProfile :one
 UPDATE users SET name = @name, avatar = @avatar WHERE id = @id RETURNING *;
 
+-- name: SetPrefs :one
+-- Merges the given preferences into the player's.
+UPDATE users SET prefs = prefs || @prefs::jsonb WHERE id = @id RETURNING *;
+
 -- name: DeleteSession :exec
 DELETE FROM sessions WHERE token_hash = @token_hash;
 
@@ -126,7 +130,7 @@ LIMIT 20;
 -- name: ProfileStats :one
 -- Everything on the profile card, from finished games.
 SELECT count(DISTINCT g.id)::int                              AS games,
-       coalesce(max(g.total), 0)::int                          AS best,
+       coalesce(max(g.total) FILTER (WHERE (g.rules ->> 'rounds')::int > 0), 0)::int AS best,
        coalesce(sum(gu.score), 0)::bigint                      AS score_sum,
        count(gu.*)::int                                        AS rounds,
        count(gu.*) FILTER (WHERE gu.score >= 4900)::int        AS perfect,
@@ -145,11 +149,11 @@ JOIN panoramas p ON p.id = r.panorama_id
 WHERE g.user_id = @user_id AND g.guessed_at IS NOT NULL AND p.street_id IS NOT NULL;
 
 -- name: MapBests :many
--- The player's best game on each map (best per round, so 3- and 10-round games compare).
+-- The player's best game on each map (best per round, so 3-, 10- and endless games compare).
 SELECT DISTINCT ON (m.id) m.slug, m.name_uz, m.name_ru, m.name_en,
        (count(*) OVER (PARTITION BY m.id))::int AS games,
-       g.id AS game_id, g.total, (g.rules ->> 'rounds')::int AS rounds
+       g.id AS game_id, g.total, g.played AS rounds
 FROM games g
 JOIN maps m ON m.id = g.map_id
-WHERE g.user_id = @user_id AND g.status = 'finished'
-ORDER BY m.id, g.total::float8 / greatest((g.rules ->> 'rounds')::int, 1) DESC;
+WHERE g.user_id = @user_id AND g.status = 'finished' AND g.played > 0
+ORDER BY m.id, g.total::float8 / g.played DESC;

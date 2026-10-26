@@ -12,6 +12,7 @@ import (
 
 	"github.com/hakim-134/api-geo-shafaq/internal/geo"
 	"github.com/hakim-134/api-geo-shafaq/internal/maps"
+	"github.com/hakim-134/api-geo-shafaq/internal/places"
 	"github.com/hakim-134/api-geo-shafaq/internal/provider"
 	"github.com/hakim-134/api-geo-shafaq/internal/rules"
 	"github.com/hakim-134/api-geo-shafaq/internal/store"
@@ -68,7 +69,7 @@ func setup(t *testing.T) *fixture {
 		t.Fatal(err)
 	}
 	f := &fixture{pool: pool, clock: time.Now()}
-	f.svc = &Service{Pool: pool, Catalog: maps.NewCatalog(q, reg), Reg: reg, Usage: provider.Usage{Q: q}, Now: func() time.Time { return f.clock }}
+	f.svc = &Service{Pool: pool, Catalog: maps.NewCatalog(q, reg, &places.Cache{Q: q, Providers: reg.Names()}), Reg: reg, Usage: provider.Usage{Q: q}, Now: func() time.Time { return f.clock }}
 	for _, id := range []*uuid.UUID{&f.user, &f.other} {
 		u, err := q.CreateUser(ctx, store.CreateUserParams{Name: "🐼_01", Avatar: "🐼"})
 		if err != nil {
@@ -336,5 +337,121 @@ func TestDailyCap(t *testing.T) {
 	f.svc.Usage.Caps = map[string]int{"yandex": 0}
 	if _, err := f.svc.Create(ctx, f.user, "city", testRules("yandex")); err != nil {
 		t.Fatalf("cap 0 means no cap: %v", err)
+	}
+}
+
+// playRound shows and guesses round n on the demo provider (no position needed).
+func playRound(t *testing.T, f *fixture, id uuid.UUID, n int) *Result {
+	t.Helper()
+	ctx := context.Background()
+	if _, err := f.svc.NextRound(ctx, f.user, id); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.svc.Shown(ctx, f.user, id, n, nil); err != nil {
+		t.Fatal(err)
+	}
+	res, err := f.svc.Guess(ctx, f.user, id, n, &geo.Point{Lat: 41.3, Lon: 69.2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return res
+}
+
+func TestEndlessGameEndsWhenThePlayerSays(t *testing.T) {
+	f := setup(t)
+	ctx := context.Background()
+	r := testRules("demo")
+	r.Rounds = 0
+	g, err := f.svc.Create(ctx, f.user, "city", r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for n := 1; n <= 3; n++ {
+		if res := playRound(t, f, g.ID, n); res.GameOver {
+			t.Fatalf("round %d ended an endless game", n)
+		}
+	}
+	// not while a round is on screen
+	if _, err := f.svc.NextRound(ctx, f.user, g.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.svc.Shown(ctx, f.user, g.ID, 4, nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.svc.Finish(ctx, f.user, g.ID); !errors.Is(err, ErrWrongPhase) {
+		t.Fatalf("finished in the middle of a round: %v", err)
+	}
+	if _, err := f.svc.Guess(ctx, f.user, g.ID, 4, nil); err != nil {
+		t.Fatal(err)
+	}
+	done, err := f.svc.Finish(ctx, f.user, g.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if done.Status != "finished" || done.Max() != 4*5000 {
+		t.Fatalf("status %s, max %d", done.Status, done.Max())
+	}
+	items, _ := f.svc.History(ctx, f.user, nil, 5)
+	if len(items) != 1 || items[0].Rounds != 4 {
+		t.Fatalf("history: %+v", items)
+	}
+
+	// a game finished before its first guess is dropped, not kept as a 0
+	g2, _ := f.svc.Create(ctx, f.user, "city", r)
+	if out, err := f.svc.Finish(ctx, f.user, g2.ID); err != nil || out.Status != "abandoned" {
+		t.Fatalf("empty game: %v %+v", err, out)
+	}
+}
+
+func TestHintsNarrowDown(t *testing.T) {
+	f := setup(t)
+	ctx := context.Background()
+	r := testRules("demo")
+	r.Hints = rules.Hints{Count: 3, Per: rules.PerRound, Kind: rules.HintRegion}
+	g, _ := f.svc.Create(ctx, f.user, "city", r)
+	_, _ = f.svc.NextRound(ctx, f.user, g.ID)
+	_, _ = f.svc.Shown(ctx, f.user, g.ID, 1, nil)
+	var got []*Hint
+	for range 3 {
+		h, err := f.svc.Hint(ctx, f.user, g.ID, 1)
+		if err != nil {
+			t.Fatal(err)
+		}
+		got = append(got, h)
+	}
+	// the region (Tashkent) is the whole map: skipped; the district, then circles that halve
+	if got[0].Kind != "district" || got[0].Place == "" || got[0].RadiusKm != 0 {
+		t.Fatalf("first hint: %+v", got[0])
+	}
+	if got[1].Kind != "circle" || got[2].Kind != "circle" || got[2].RadiusKm != got[1].RadiusKm/2 {
+		t.Fatalf("circles: %+v %+v", got[1], got[2])
+	}
+	if _, err := f.svc.Hint(ctx, f.user, g.ID, 1); !errors.Is(err, ErrNoHints) {
+		t.Fatalf("a 4th hint: %v", err)
+	}
+}
+
+func TestPlaceMapAndMovement(t *testing.T) {
+	f := setup(t)
+	ctx := context.Background()
+	m, err := f.svc.Catalog.Get(ctx, maps.PlaceMap("west"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(m.Places) != 1 || m.Count(map[string]bool{"yandex": true}) != 20 {
+		t.Fatalf("west's map: places %v, %d panoramas", m.Places, m.Count(map[string]bool{"yandex": true}))
+	}
+	if _, err := f.svc.Catalog.Get(ctx, maps.PlaceMap("atlantis")); !errors.Is(err, maps.ErrNotFound) {
+		t.Fatalf("a place that does not exist: %v", err)
+	}
+	// demo panoramas cannot walk: Move plays as No move
+	r := testRules("demo")
+	r.Movement = rules.Move
+	g, err := f.svc.Create(ctx, f.user, maps.PlaceMap("west"), r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if g.Rules.Movement != rules.NoMove {
+		t.Fatalf("movement %s", g.Rules.Movement)
 	}
 }
