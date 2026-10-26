@@ -15,6 +15,33 @@ import (
 	openapi_types "github.com/oapi-codegen/runtime/types"
 )
 
+// Defines values for AuthResultStatus.
+const (
+	Already  AuthResultStatus = "already"
+	Linked   AuthResultStatus = "linked"
+	Merge    AuthResultStatus = "merge"
+	Pending  AuthResultStatus = "pending"
+	SignedIn AuthResultStatus = "signed_in"
+)
+
+// Valid indicates whether the value is a known member of the AuthResultStatus enum.
+func (e AuthResultStatus) Valid() bool {
+	switch e {
+	case Already:
+		return true
+	case Linked:
+		return true
+	case Merge:
+		return true
+	case Pending:
+		return true
+	case SignedIn:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for GameStatus.
 const (
 	Abandoned GameStatus = "abandoned"
@@ -72,6 +99,24 @@ func (e HintRulePer) Valid() bool {
 	}
 }
 
+// Defines values for IdentityProvider.
+const (
+	Google   IdentityProvider = "google"
+	Telegram IdentityProvider = "telegram"
+)
+
+// Valid indicates whether the value is a known member of the IdentityProvider enum.
+func (e IdentityProvider) Valid() bool {
+	switch e {
+	case Google:
+		return true
+	case Telegram:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for Movement.
 const (
 	Move   Movement = "move"
@@ -111,6 +156,53 @@ func (e RoundFailedReason) Valid() bool {
 	}
 }
 
+// Defines values for ReportUserJSONBodyReason.
+const (
+	Cheating ReportUserJSONBodyReason = "cheating"
+	Name     ReportUserJSONBodyReason = "name"
+	Other    ReportUserJSONBodyReason = "other"
+)
+
+// Valid indicates whether the value is a known member of the ReportUserJSONBodyReason enum.
+func (e ReportUserJSONBodyReason) Valid() bool {
+	switch e {
+	case Cheating:
+		return true
+	case Name:
+		return true
+	case Other:
+		return true
+	default:
+		return false
+	}
+}
+
+// AppConfig defines model for AppConfig.
+type AppConfig struct {
+	// Avatars The emojis a player may pick.
+	Avatars []string `json:"avatars"`
+
+	// GoogleClientId For Google's sign-in button; absent = no Google sign-in on this server.
+	GoogleClientId *string `json:"googleClientId,omitempty"`
+
+	// TelegramBot The bot's username; absent = no Telegram sign-in on this server.
+	TelegramBot *string `json:"telegramBot,omitempty"`
+}
+
+// AuthResult signed_in: this device is now that account (a guest's games moved into it).
+// linked: the identity was added to the current player.
+// already: it was already this player's.
+// merge: it belongs to another account; `merge` asks the player to join the two.
+// pending: (Telegram bot) the player has not pressed Start yet.
+type AuthResult struct {
+	Me     *Me              `json:"me,omitempty"`
+	Merge  *MergeOffer      `json:"merge,omitempty"`
+	Status AuthResultStatus `json:"status"`
+}
+
+// AuthResultStatus defines model for AuthResult.Status.
+type AuthResultStatus string
+
 // Circle defines model for Circle.
 type Circle struct {
 	Center   LatLon  `json:"center"`
@@ -129,7 +221,9 @@ type CreateGame struct {
 // Error defines model for Error.
 type Error struct {
 	// Code no_session | not_found | bad_input | wrong_phase | round_running | game_over |
-	// no_panorama | daily_cap | too_far | rate_limited | internal.
+	// no_panorama | daily_cap | too_far | rate_limited | banned | bad_name |
+	// last_identity | bad_login | not_configured | internal.
+	// banned: the player is banned and cannot start games.
 	// daily_cap: the game's panorama providers reached today's budget (`DAILY_CAPS`);
 	// new games start again after midnight, Moscow time.
 	Code    string  `json:"code"`
@@ -145,6 +239,7 @@ type Game struct {
 	Id        openapi_types.UUID `json:"id"`
 	Map       MapSummary         `json:"map"`
 	Max       int                `json:"max"`
+	Player    PublicUser         `json:"player"`
 
 	// Rounds Every round so far; the last one may still be running.
 	Rounds []Round `json:"rounds"`
@@ -214,10 +309,40 @@ type HintRule struct {
 // HintRulePer defines model for HintRule.Per.
 type HintRulePer string
 
+// Identity A way to sign in.
+type Identity struct {
+	CreatedAt time.Time `json:"createdAt"`
+
+	// Id Opaque; for unlinking.
+	Id string `json:"id"`
+
+	// Name The name the provider shows.
+	Name     string           `json:"name"`
+	Provider IdentityProvider `json:"provider"`
+
+	// Username @username (Telegram) or the e-mail address (Google).
+	Username string `json:"username"`
+}
+
+// IdentityProvider defines model for Identity.Provider.
+type IdentityProvider string
+
 // LatLon defines model for LatLon.
 type LatLon struct {
 	Lat float64 `json:"lat"`
 	Lon float64 `json:"lon"`
+}
+
+// MapBest defines model for MapBest.
+type MapBest struct {
+	// Best Total of the best game (best per round).
+	Best   int                `json:"best"`
+	GameId openapi_types.UUID `json:"gameId"`
+	Games  int                `json:"games"`
+	Map    MapRef             `json:"map"`
+
+	// Rounds Rounds of that game.
+	Rounds int `json:"rounds"`
 }
 
 // MapRef defines model for MapRef.
@@ -269,8 +394,17 @@ type MapSummary struct {
 
 // Me defines model for Me.
 type Me struct {
-	Stats Stats `json:"stats"`
-	User  User  `json:"user"`
+	Identities []Identity `json:"identities"`
+	Stats      Stats      `json:"stats"`
+	User       User       `json:"user"`
+}
+
+// MergeOffer defines model for MergeOffer.
+type MergeOffer struct {
+	Other Profile `json:"other"`
+
+	// Token For `/v1/auth/merge`; good for 10 minutes.
+	Token string `json:"token"`
 }
 
 // Metro defines model for Metro.
@@ -335,6 +469,47 @@ type PlaceShape struct {
 	// Outline The same shape as a small SVG.
 	Outline string `json:"outline"`
 	Slug    string `json:"slug"`
+}
+
+// Profile defines model for Profile.
+type Profile struct {
+	Maps []MapBest `json:"maps"`
+
+	// Recent The last finished games, newest first.
+	Recent  []GameListItem `json:"recent"`
+	Stats   ProfileStats   `json:"stats"`
+	Streets StreetProgress `json:"streets"`
+	User    PublicUser     `json:"user"`
+}
+
+// ProfileStats defines model for ProfileStats.
+type ProfileStats struct {
+	AvgRound int `json:"avgRound"`
+	Best     int `json:"best"`
+	Games    int `json:"games"`
+
+	// Km All guesses' distances added up.
+	Km float64 `json:"km"`
+
+	// Perfect Rounds scored 4 900 or more.
+	Perfect int `json:"perfect"`
+	Rounds  int `json:"rounds"`
+}
+
+// ProfileUpdate defines model for ProfileUpdate.
+type ProfileUpdate struct {
+	Avatar *string `json:"avatar,omitempty"`
+	Name   *string `json:"name,omitempty"`
+}
+
+// PublicUser defines model for PublicUser.
+type PublicUser struct {
+	Avatar   string             `json:"avatar"`
+	Banned   *bool              `json:"banned,omitempty"`
+	Guest    bool               `json:"guest"`
+	Id       openapi_types.UUID `json:"id"`
+	JoinedAt time.Time          `json:"joinedAt"`
+	Name     string             `json:"name"`
 }
 
 // Round defines model for Round.
@@ -421,6 +596,29 @@ type Stats struct {
 	Games    int `json:"games"`
 }
 
+// StreetProgress defines model for StreetProgress.
+type StreetProgress struct {
+	// Learned Streets guessed within 500 m at least once.
+	Learned int `json:"learned"`
+
+	// Seen Streets been on.
+	Seen int `json:"seen"`
+
+	// Total Streets in the game.
+	Total int `json:"total"`
+}
+
+// TelegramStart defines model for TelegramStart.
+type TelegramStart struct {
+	Code string `json:"code"`
+
+	// ExpiresIn Seconds.
+	ExpiresIn int `json:"expiresIn"`
+
+	// Url https://t.me/<bot>?start=login_<code>
+	Url string `json:"url"`
+}
+
 // Text A name in the three languages. `ru` and `en` fall back to `uz` (street signs are in Uzbek Latin).
 type Text struct {
 	En string `json:"en"`
@@ -433,9 +631,12 @@ type User struct {
 	// Avatar An emoji from the curated list
 	//
 	// Example: 🐼
-	Avatar string             `json:"avatar"`
-	Guest  bool               `json:"guest"`
-	Id     openapi_types.UUID `json:"id"`
+	Avatar string `json:"avatar"`
+	Banned *bool  `json:"banned,omitempty"`
+
+	// Guest No way to sign in yet; everything is kept on the server all the same.
+	Guest bool               `json:"guest"`
+	Id    openapi_types.UUID `json:"id"`
 
 	// Name Example: 🐼_42
 	Name string `json:"name"`
@@ -450,12 +651,70 @@ type RoundN = int
 // Slug defines model for Slug.
 type Slug = string
 
+// UserId defines model for UserId.
+type UserId = openapi_types.UUID
+
+// GoogleLoginJSONBody defines parameters for GoogleLogin.
+type GoogleLoginJSONBody struct {
+	// Credential Google's ID token (a JWT).
+	Credential string `json:"credential"`
+}
+
+// LogoutJSONBody defines parameters for Logout.
+type LogoutJSONBody struct {
+	Everywhere *bool `json:"everywhere,omitempty"`
+}
+
+// MergeAccountsJSONBody defines parameters for MergeAccounts.
+type MergeAccountsJSONBody struct {
+	Token string `json:"token"`
+}
+
+// CheckTelegramLoginJSONBody defines parameters for CheckTelegramLogin.
+type CheckTelegramLoginJSONBody struct {
+	Code string `json:"code"`
+}
+
+// TelegramWebAppLoginJSONBody defines parameters for TelegramWebAppLogin.
+type TelegramWebAppLoginJSONBody struct {
+	InitData string `json:"initData"`
+}
+
 // ListMyGamesParams defines parameters for ListMyGames.
 type ListMyGamesParams struct {
 	// Before Cursor; the `next` value of the previous page.
 	Before *string `form:"before,omitempty" json:"before,omitempty"`
 	Limit  *int    `form:"limit,omitempty" json:"limit,omitempty"`
 }
+
+// UnlinkIdentityJSONBody defines parameters for UnlinkIdentity.
+type UnlinkIdentityJSONBody struct {
+	// Id `Identity.id`
+	Id string `json:"id"`
+}
+
+// ReportUserJSONBody defines parameters for ReportUser.
+type ReportUserJSONBody struct {
+	Reason ReportUserJSONBodyReason `json:"reason"`
+}
+
+// ReportUserJSONBodyReason defines parameters for ReportUser.
+type ReportUserJSONBodyReason string
+
+// GoogleLoginJSONRequestBody defines body for GoogleLogin for application/json ContentType.
+type GoogleLoginJSONRequestBody GoogleLoginJSONBody
+
+// LogoutJSONRequestBody defines body for Logout for application/json ContentType.
+type LogoutJSONRequestBody LogoutJSONBody
+
+// MergeAccountsJSONRequestBody defines body for MergeAccounts for application/json ContentType.
+type MergeAccountsJSONRequestBody MergeAccountsJSONBody
+
+// CheckTelegramLoginJSONRequestBody defines body for CheckTelegramLogin for application/json ContentType.
+type CheckTelegramLoginJSONRequestBody CheckTelegramLoginJSONBody
+
+// TelegramWebAppLoginJSONRequestBody defines body for TelegramWebAppLogin for application/json ContentType.
+type TelegramWebAppLoginJSONRequestBody TelegramWebAppLoginJSONBody
 
 // CreateGameJSONRequestBody defines body for CreateGame for application/json ContentType.
 type CreateGameJSONRequestBody = CreateGame
@@ -469,8 +728,38 @@ type GuessJSONRequestBody = GuessRequest
 // RoundShownJSONRequestBody defines body for RoundShown for application/json ContentType.
 type RoundShownJSONRequestBody = RoundShown
 
+// UnlinkIdentityJSONRequestBody defines body for UnlinkIdentity for application/json ContentType.
+type UnlinkIdentityJSONRequestBody UnlinkIdentityJSONBody
+
+// UpdateProfileJSONRequestBody defines body for UpdateProfile for application/json ContentType.
+type UpdateProfileJSONRequestBody = ProfileUpdate
+
+// ReportUserJSONRequestBody defines body for ReportUser for application/json ContentType.
+type ReportUserJSONRequestBody ReportUserJSONBody
+
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
+	// GoogleLogin Signs in with Google (the ID token from Google's sign-in button).
+	// (POST /v1/auth/google)
+	GoogleLogin(w http.ResponseWriter, r *http.Request)
+	// Logout Signs out this device, or every device. The next visit starts as a new guest.
+	// (POST /v1/auth/logout)
+	Logout(w http.ResponseWriter, r *http.Request)
+	// MergeAccounts Says yes to a merge offer; the other account moves into this one.
+	// (POST /v1/auth/merge)
+	MergeAccounts(w http.ResponseWriter, r *http.Request)
+	// CheckTelegramLogin Collects a Telegram sign-in once the player pressed Start in the bot.
+	// (POST /v1/auth/telegram/check)
+	CheckTelegramLogin(w http.ResponseWriter, r *http.Request)
+	// StartTelegramLogin Starts "sign in with Telegram" through the bot.
+	// (POST /v1/auth/telegram/start)
+	StartTelegramLogin(w http.ResponseWriter, r *http.Request)
+	// TelegramWebAppLogin Signs in inside Telegram (the game opened as a Mini App), with Telegram's signed initData.
+	// (POST /v1/auth/telegram/webapp)
+	TelegramWebAppLogin(w http.ResponseWriter, r *http.Request)
+	// GetConfig What the game needs to know before it draws the sign-in buttons and the avatar picker.
+	// (GET /v1/config)
+	GetConfig(w http.ResponseWriter, r *http.Request)
 	// CreateGame Starts a solo game on a map.
 	// (POST /v1/games)
 	CreateGame(w http.ResponseWriter, r *http.Request)
@@ -507,6 +796,15 @@ type ServerInterface interface {
 	// ListMyGames The player's finished games, newest first.
 	// (GET /v1/me/games)
 	ListMyGames(w http.ResponseWriter, r *http.Request, params ListMyGamesParams)
+	// UnlinkIdentity Removes a way to sign in. The last one stays (`last_identity`).
+	// (POST /v1/me/identities/unlink)
+	UnlinkIdentity(w http.ResponseWriter, r *http.Request)
+
+	// (GET /v1/me/profile)
+	GetMyProfile(w http.ResponseWriter, r *http.Request)
+	// UpdateProfile Changes the player's name or avatar.
+	// (POST /v1/me/profile)
+	UpdateProfile(w http.ResponseWriter, r *http.Request)
 	// GetDemoPanorama The drawn test panorama of the `demo` provider (a JPEG).
 	// (GET /v1/pano/demo/{ref})
 	GetDemoPanorama(w http.ResponseWriter, r *http.Request, ref string)
@@ -519,6 +817,12 @@ type ServerInterface interface {
 	// StartSession Returns the current player, creating a guest on the first visit.
 	// (POST /v1/session)
 	StartSession(w http.ResponseWriter, r *http.Request)
+	// GetProfile A player's public profile.
+	// (GET /v1/users/{userId})
+	GetProfile(w http.ResponseWriter, r *http.Request, userId UserId)
+	// ReportUser Reports a player to the admins (a rude name, cheating, other).
+	// (POST /v1/users/{userId}/report)
+	ReportUser(w http.ResponseWriter, r *http.Request, userId UserId)
 }
 
 // ServerInterfaceWrapper converts contexts to parameters.
@@ -529,6 +833,104 @@ type ServerInterfaceWrapper struct {
 }
 
 type MiddlewareFunc func(http.Handler) http.Handler
+
+// GoogleLogin operation middleware
+func (siw *ServerInterfaceWrapper) GoogleLogin(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GoogleLogin(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// Logout operation middleware
+func (siw *ServerInterfaceWrapper) Logout(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.Logout(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// MergeAccounts operation middleware
+func (siw *ServerInterfaceWrapper) MergeAccounts(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.MergeAccounts(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CheckTelegramLogin operation middleware
+func (siw *ServerInterfaceWrapper) CheckTelegramLogin(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CheckTelegramLogin(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// StartTelegramLogin operation middleware
+func (siw *ServerInterfaceWrapper) StartTelegramLogin(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.StartTelegramLogin(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// TelegramWebAppLogin operation middleware
+func (siw *ServerInterfaceWrapper) TelegramWebAppLogin(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.TelegramWebAppLogin(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetConfig operation middleware
+func (siw *ServerInterfaceWrapper) GetConfig(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetConfig(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
 
 // CreateGame operation middleware
 func (siw *ServerInterfaceWrapper) CreateGame(w http.ResponseWriter, r *http.Request) {
@@ -850,6 +1252,48 @@ func (siw *ServerInterfaceWrapper) ListMyGames(w http.ResponseWriter, r *http.Re
 	handler.ServeHTTP(w, r)
 }
 
+// UnlinkIdentity operation middleware
+func (siw *ServerInterfaceWrapper) UnlinkIdentity(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UnlinkIdentity(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetMyProfile operation middleware
+func (siw *ServerInterfaceWrapper) GetMyProfile(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetMyProfile(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UpdateProfile operation middleware
+func (siw *ServerInterfaceWrapper) UpdateProfile(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpdateProfile(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // GetDemoPanorama operation middleware
 func (siw *ServerInterfaceWrapper) GetDemoPanorama(w http.ResponseWriter, r *http.Request) {
 
@@ -921,6 +1365,58 @@ func (siw *ServerInterfaceWrapper) StartSession(w http.ResponseWriter, r *http.R
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.StartSession(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetProfile operation middleware
+func (siw *ServerInterfaceWrapper) GetProfile(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "userId" -------------
+	var userId UserId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "userId", r.PathValue("userId"), &userId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "userId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetProfile(w, r, userId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ReportUser operation middleware
+func (siw *ServerInterfaceWrapper) ReportUser(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "userId" -------------
+	var userId UserId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "userId", r.PathValue("userId"), &userId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "userId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ReportUser(w, r, userId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -1055,6 +1551,18 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/session", wrapper.StartSession)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/me", wrapper.GetMe)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/me/games", wrapper.ListMyGames)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/config", wrapper.GetConfig)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/auth/telegram/start", wrapper.StartTelegramLogin)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/auth/telegram/check", wrapper.CheckTelegramLogin)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/auth/telegram/webapp", wrapper.TelegramWebAppLogin)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/auth/google", wrapper.GoogleLogin)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/auth/merge", wrapper.MergeAccounts)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/auth/logout", wrapper.Logout)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/me/profile", wrapper.GetMyProfile)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/me/profile", wrapper.UpdateProfile)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/me/identities/unlink", wrapper.UnlinkIdentity)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/users/{userId}", wrapper.GetProfile)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/users/{userId}/report", wrapper.ReportUser)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/maps", wrapper.ListMaps)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/maps/{slug}", wrapper.GetMap)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/places/{slug}/shape", wrapper.GetPlaceShape)

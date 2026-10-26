@@ -13,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
 
+	"github.com/hakim-134/api-geo-shafaq/internal/auth"
 	"github.com/hakim-134/api-geo-shafaq/internal/config"
 	"github.com/hakim-134/api-geo-shafaq/internal/game"
 	"github.com/hakim-134/api-geo-shafaq/internal/httpapi/oapi"
@@ -33,6 +34,8 @@ type Server struct {
 	demo    provider.Demo
 	limit   kv.Limiter
 	version string
+	bot     *telegramBot
+	google  *auth.Google
 
 	cookieName   string
 	cookieSecure bool
@@ -58,6 +61,8 @@ func New(d Deps) http.Handler {
 		catalog: d.Catalog, demo: d.Demo, limit: kv.Limiter{C: d.Valkey}, version: d.Config.Version,
 		cookieName: "sg_session", cookieSecure: d.Config.CookieSecure, cookieDomain: d.Config.CookieDomain,
 		sessionTTL: d.Config.SessionTTL, trustProxy: d.Config.TrustProxy,
+		bot:    &telegramBot{token: d.Config.TelegramBotToken, client: &http.Client{Timeout: 10 * time.Second}},
+		google: &auth.Google{ClientID: d.Config.GoogleClientID},
 	}
 	origins := Origins(d.Config.WebOrigins)
 	mux := http.NewServeMux()
@@ -93,10 +98,16 @@ func fail(w http.ResponseWriter, r *http.Request, err error) {
 	status := http.StatusInternalServerError
 	code := "internal"
 	switch {
-	case errors.Is(err, game.ErrNotFound), errors.Is(err, maps.ErrNotFound):
+	case errors.Is(err, game.ErrNotFound), errors.Is(err, maps.ErrNotFound), errors.Is(err, players.ErrNotFound):
 		status, code = http.StatusNotFound, "not_found"
-	case errors.Is(err, game.ErrBadInput):
+	case errors.Is(err, game.ErrBadInput), errors.Is(err, players.ErrBadAvatar):
 		status, code = http.StatusBadRequest, "bad_input"
+	case errors.Is(err, players.ErrBadName):
+		status, code = http.StatusBadRequest, "bad_name"
+	case errors.Is(err, players.ErrLastIdentity):
+		status, code = http.StatusConflict, "last_identity"
+	case errors.Is(err, auth.ErrBadLogin):
+		status, code = http.StatusUnauthorized, "bad_login"
 	case errors.Is(err, game.ErrWrongPhase), errors.Is(err, game.ErrGameOver), errors.Is(err, game.ErrTooFar),
 		errors.Is(err, game.ErrNoHints), errors.Is(err, game.ErrTooManyFails):
 		status, code = http.StatusConflict, err.Error()

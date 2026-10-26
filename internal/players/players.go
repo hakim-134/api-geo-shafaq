@@ -1,6 +1,6 @@
-// Package players is guests and sessions. Everyone is a player from the first visit: a
-// guest with an emoji name like 🐼_42, no sign-in wall. Accounts (Google, Telegram) attach
-// to the same user later, so nothing is lost.
+// Package players is guests, accounts and sessions. Everyone is a player from the first
+// visit: a guest with an emoji name like 🐼_42, no sign-in wall. Ways to sign in (Telegram,
+// Google) attach to the same user later, so nothing is lost (accounts.go).
 package players
 
 import (
@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/hakim-134/api-geo-shafaq/internal/metrics"
 	"github.com/hakim-134/api-geo-shafaq/internal/store"
@@ -49,8 +50,9 @@ func randInt(n int) int {
 var ErrNoSession = errors.New("no session")
 
 type Service struct {
-	Q   *store.Queries
-	TTL time.Duration
+	Pool *pgxpool.Pool
+	Q    *store.Queries
+	TTL  time.Duration
 }
 
 // NewGuest creates a guest and a session for it. The token goes into the cookie; only its
@@ -97,7 +99,10 @@ func (s *Service) FromToken(ctx context.Context, token string) (store.User, erro
 	if err != nil {
 		return store.User{}, err
 	}
-	u := store.User{ID: row.ID, Name: row.Name, Avatar: row.Avatar, Guest: row.Guest, CreatedAt: row.CreatedAt, LastSeenAt: row.LastSeenAt}
+	u := store.User{
+		ID: row.ID, Name: row.Name, Avatar: row.Avatar, Guest: row.Guest, CreatedAt: row.CreatedAt,
+		LastSeenAt: row.LastSeenAt, BannedAt: row.BannedAt, BanReason: row.BanReason,
+	}
 	if time.Since(row.SessionUsedAt) > time.Hour {
 		if err := s.Q.TouchSession(ctx, store.TouchSessionParams{TokenHash: h, ExpiresAt: time.Now().Add(s.TTL)}); err != nil {
 			return u, err

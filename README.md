@@ -38,8 +38,8 @@ container, migrations at start, then the worker and the API on :8131).
 | Where | What |
 |---|---|
 | `cmd/api` | the HTTP API |
-| `cmd/worker` | background jobs (River, in Postgres): Yandex usage warning, cleanup |
-| `cmd/tools` | `migrate`, `places`, `v0`, `demo`, `maps`, `tag`, `stats`, `google`, `setup` |
+| `cmd/worker` | background jobs (River, in Postgres): Yandex usage warning, cleanup; the players' Telegram bot |
+| `cmd/tools` | `migrate`, `places`, `v0`, `demo`, `maps`, `tag`, `stats`, `google`, `setup`; `reports`, `ban`, `unban` (moderation) |
 | `internal/game` | solo games: round picking, the clock, hints, scoring |
 | `internal/maps` | maps (the official four for now) and the round picker |
 | `internal/provider` | the panorama providers behind one interface: `yandex`, `google`, `demo`. `PROVIDERS` are what players get (and what the menu counts); `TEST_PROVIDERS` play only in games that name them; `DAILY_CAPS` are each one's daily budget |
@@ -47,10 +47,41 @@ container, migrations at start, then the worker and the API on :8131).
 | `deploy/` | the server: Caddy, Prometheus, Loki/Alloy, Grafana (dashboard), the db image with pgBackRest, `deploy.sh`, `env.example` |
 | `internal/places` | the place tree from OSM, outlines, "where is this point" |
 | `internal/score`, `internal/rules` | the score formula and the one rule set |
-| `internal/players` | guests (🐼_42) and sessions |
+| `internal/players` | guests (🐼_42), accounts, sessions, merging, the name filter |
+| `internal/auth` | checks Telegram's and Google's sign-in proofs (Mini App `initData`, Google ID tokens) |
 | `internal/httpapi` | handlers for the generated routes, CORS, the write check, metrics |
 | `internal/store` | sqlc output; never edit by hand |
 | `data/v0` | v0's panorama pools, the seed of the library |
+
+## Players and accounts
+
+Everyone plays from the first visit as a guest (`POST /v1/session`). Signing in only adds a
+way back from another device; nothing is lost:
+
+- **Telegram, through the bot.** The game asks for a one-time code (`/v1/auth/telegram/start`)
+  and opens `t.me/<bot>?start=login_<code>` (a link on a phone, a QR code on a laptop). The
+  player presses Start; the worker's bot confirms the code; the game, asking every few seconds
+  (`/v1/auth/telegram/check`), is signed in. Works on any address, `localhost` included.
+- **Telegram Mini App.** Opened inside Telegram, the page has Telegram's signed `initData` and
+  signs in by itself (`/v1/auth/telegram/webapp`).
+- **Google.** Google's own button gives an ID token, checked against Google's keys
+  (`/v1/auth/google`). Off until `GOOGLE_CLIENT_ID` is set; free, no Maps billing.
+
+What a sign-in does: a new identity is added to the current player (a guest becomes an
+account). An identity that already has an account: a guest moves into it with its games and
+this device's session; an account gets a merge offer that the player confirms
+(`/v1/auth/merge`), after which everything of the other account (games, identities, its
+devices' sessions) belongs to this one. The last identity cannot be unlinked.
+
+Names: 2–24 characters, checked by the name filter (`internal/players/names.go`: rude words in
+Uzbek, Russian and English in either script or with digits for letters, and staff-like names).
+A player can report another one from their page; `shafaq-tools reports` lists the reports,
+`shafaq-tools ban <id|name> [reason]` stops that player from starting games (the ban follows
+merges), `unban` lifts it.
+
+The bot (`TELEGRAM_BOT_TOKEN`, by default the alert bot) also greets players who write to it
+and answers `/id` with the chat's IDs, which is how the owner finds `TELEGRAM_ALERT_CHAT`. Only
+one program may read a bot's messages: the laptop and the server must not share a bot token.
 
 ## How a round works
 
@@ -73,7 +104,7 @@ panorama that fails three times is retired.
 The free key allows about 100 panorama views a day and no paid products; going over again and
 again gets the key blocked for good. Two counts, one warning a day at 80% (in the log, and on
 Telegram if `TELEGRAM_ALERT_TOKEN`/`_CHAT` are set; to find the chat ID, write to the bot
-while the worker runs, or send `/id` in a group, and it answers with the ID):
+while the worker runs and send `/id`, in a private chat or a group, and it answers with the ID):
 
 - **Ours**: every round handed out (`provider_usage`, the `shafaq_panorama_views_today` metric).
 - **Yandex's own**, which is the one that decides a block (free terms §4.3): the worker reads it

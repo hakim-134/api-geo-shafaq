@@ -38,6 +38,16 @@ type Guess struct {
 	GuessedAt *time.Time
 }
 
+type Identity struct {
+	Provider   string
+	Subject    string
+	UserID     uuid.UUID
+	Name       string
+	Username   string
+	CreatedAt  time.Time
+	LastUsedAt time.Time
+}
+
 type Map struct {
 	ID         int64
 	Slug       string
@@ -62,6 +72,13 @@ type MapSource struct {
 	PlaceID    *int64
 	StreetID   *int64
 	PanoramaID *int64
+}
+
+type MergeOffer struct {
+	TokenHash []byte
+	UserID    uuid.UUID
+	OtherID   uuid.UUID
+	ExpiresAt time.Time
 }
 
 type Panorama struct {
@@ -114,6 +131,16 @@ type ProviderUsage struct {
 	StopTold bool
 }
 
+type Report struct {
+	ID         int64
+	ReporterID uuid.UUID
+	UserID     uuid.UUID
+	Reason     string
+	Name       string
+	CreatedAt  time.Time
+	ResolvedAt *time.Time
+}
+
 type Round struct {
 	GameID     uuid.UUID
 	N          int32
@@ -145,6 +172,17 @@ type Street struct {
 	NameRu  string
 }
 
+type TelegramLogin struct {
+	CodeHash    []byte
+	UserID      uuid.UUID
+	TgID        *int64
+	TgName      string
+	TgUsername  string
+	ConfirmedAt *time.Time
+	CreatedAt   time.Time
+	ExpiresAt   time.Time
+}
+
 type User struct {
 	ID         uuid.UUID
 	Name       string
@@ -152,4 +190,6 @@ type User struct {
 	Guest      bool
 	CreatedAt  time.Time
 	LastSeenAt time.Time
+	BannedAt   *time.Time
+	BanReason  string
 }

@@ -16,6 +16,7 @@ servers:
 tags:
   - name: system
   - name: session
+  - name: accounts
   - name: maps
   - name: games
 
@@ -96,6 +97,239 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/GamePage" }
         "401": { $ref: "#/components/responses/Error" }
+
+  /v1/config:
+    get:
+      tags: [accounts]
+      operationId: getConfig
+      summary: What the game needs to know before it draws the sign-in buttons and the avatar picker.
+      responses:
+        "200":
+          description: The settings
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AppConfig" }
+
+  /v1/auth/telegram/start:
+    post:
+      tags: [accounts]
+      operationId: startTelegramLogin
+      summary: Starts "sign in with Telegram" through the bot.
+      description: |
+        The game opens `url` (the bot, with `start=login_<code>`); the player presses Start in
+        Telegram; the game then calls `/v1/auth/telegram/check` with the code until it is done.
+        The code is good for 10 minutes and only for the session that asked for it.
+      responses:
+        "200":
+          description: The code and the bot link
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TelegramStart" }
+        "401": { $ref: "#/components/responses/Error" }
+        "429": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+
+  /v1/auth/telegram/check:
+    post:
+      tags: [accounts]
+      operationId: checkTelegramLogin
+      summary: Collects a Telegram sign-in once the player pressed Start in the bot.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [code]
+              properties:
+                code: { type: string }
+      responses:
+        "200":
+          description: "`pending` until the player pressed Start; then the sign-in's outcome"
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AuthResult" }
+        "401": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /v1/auth/telegram/webapp:
+    post:
+      tags: [accounts]
+      operationId: telegramWebAppLogin
+      summary: Signs in inside Telegram (the game opened as a Mini App), with Telegram's signed initData.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [initData]
+              properties:
+                initData: { type: string }
+      responses:
+        "200":
+          description: The sign-in's outcome
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AuthResult" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+
+  /v1/auth/google:
+    post:
+      tags: [accounts]
+      operationId: googleLogin
+      summary: Signs in with Google (the ID token from Google's sign-in button).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [credential]
+              properties:
+                credential: { type: string, description: Google's ID token (a JWT). }
+      responses:
+        "200":
+          description: The sign-in's outcome
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AuthResult" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+
+  /v1/auth/merge:
+    post:
+      tags: [accounts]
+      operationId: mergeAccounts
+      summary: Says yes to a merge offer; the other account moves into this one.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token]
+              properties:
+                token: { type: string }
+      responses:
+        "200":
+          description: The player, now with everything of both
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Me" }
+        "401": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /v1/auth/logout:
+    post:
+      tags: [accounts]
+      operationId: logout
+      summary: Signs out this device, or every device. The next visit starts as a new guest.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                everywhere: { type: boolean }
+      responses:
+        "204": { description: Signed out }
+
+  /v1/me/profile:
+    get:
+      tags: [accounts]
+      operationId: getMyProfile
+      responses:
+        "200":
+          description: The player's own profile
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Profile" }
+        "401": { $ref: "#/components/responses/Error" }
+    post:
+      tags: [accounts]
+      operationId: updateProfile
+      summary: Changes the player's name or avatar.
+      description: |
+        Names are 2–24 characters (letters, digits, spaces, `_ - .`) and pass the name filter
+        (uz/ru/en); `bad_name` otherwise. The avatar is one of `AppConfig.avatars`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ProfileUpdate" }
+      responses:
+        "200":
+          description: The player
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Me" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+
+  /v1/me/identities/unlink:
+    post:
+      tags: [accounts]
+      operationId: unlinkIdentity
+      summary: Removes a way to sign in. The last one stays (`last_identity`).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [id]
+              properties:
+                id: { type: string, description: "`Identity.id`" }
+      responses:
+        "200":
+          description: The player
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Me" }
+        "401": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
+  /v1/users/{userId}:
+    get:
+      tags: [accounts]
+      operationId: getProfile
+      summary: A player's public profile.
+      parameters:
+        - $ref: "#/components/parameters/UserId"
+      responses:
+        "200":
+          description: The profile
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Profile" }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /v1/users/{userId}/report:
+    post:
+      tags: [accounts]
+      operationId: reportUser
+      summary: Reports a player to the admins (a rude name, cheating, other).
+      parameters:
+        - $ref: "#/components/parameters/UserId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reason]
+              properties:
+                reason: { type: string, enum: [name, cheating, other] }
+      responses:
+        "204": { description: Reported }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "429": { $ref: "#/components/responses/Error" }
 
   /v1/maps:
     get:
@@ -319,6 +553,11 @@ components:
       in: path
       required: true
       schema: { type: string, format: uuid }
+    UserId:
+      name: userId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
     RoundN:
       name: "n"
       in: path
@@ -341,7 +580,9 @@ components:
           type: string
           description: |
             no_session | not_found | bad_input | wrong_phase | round_running | game_over |
-            no_panorama | daily_cap | too_far | rate_limited | internal.
+            no_panorama | daily_cap | too_far | rate_limited | banned | bad_name |
+            last_identity | bad_login | not_configured | internal.
+            banned: the player is banned and cannot start games.
             daily_cap: the game's panorama providers reached today's budget (`DAILY_CAPS`);
             new games start again after midnight, Moscow time.
         message: { type: string }
@@ -379,7 +620,8 @@ components:
         id: { type: string, format: uuid }
         name: { type: string, example: "🐼_42" }
         avatar: { type: string, description: "An emoji from the curated list", example: "🐼" }
-        guest: { type: boolean }
+        guest: { type: boolean, description: No way to sign in yet; everything is kept on the server all the same. }
+        banned: { type: boolean }
 
     Stats:
       type: object
@@ -391,10 +633,129 @@ components:
 
     Me:
       type: object
-      required: [user, stats]
+      required: [user, stats, identities]
       properties:
         user: { $ref: "#/components/schemas/User" }
         stats: { $ref: "#/components/schemas/Stats" }
+        identities:
+          type: array
+          items: { $ref: "#/components/schemas/Identity" }
+
+    Identity:
+      description: A way to sign in.
+      type: object
+      required: [id, provider, name, username, createdAt]
+      properties:
+        id: { type: string, description: Opaque; for unlinking. }
+        provider: { type: string, enum: [telegram, google] }
+        name: { type: string, description: The name the provider shows. }
+        username: { type: string, description: "@username (Telegram) or the e-mail address (Google)." }
+        createdAt: { type: string, format: date-time }
+
+    AppConfig:
+      type: object
+      required: [avatars]
+      properties:
+        telegramBot:
+          type: string
+          description: The bot's username; absent = no Telegram sign-in on this server.
+        googleClientId:
+          type: string
+          description: For Google's sign-in button; absent = no Google sign-in on this server.
+        avatars:
+          type: array
+          description: The emojis a player may pick.
+          items: { type: string }
+
+    TelegramStart:
+      type: object
+      required: [code, url, expiresIn]
+      properties:
+        code: { type: string }
+        url: { type: string, description: "https://t.me/<bot>?start=login_<code>" }
+        expiresIn: { type: integer, description: Seconds. }
+
+    AuthResult:
+      description: |
+        signed_in: this device is now that account (a guest's games moved into it).
+        linked: the identity was added to the current player.
+        already: it was already this player's.
+        merge: it belongs to another account; `merge` asks the player to join the two.
+        pending: (Telegram bot) the player has not pressed Start yet.
+      type: object
+      required: [status]
+      properties:
+        status: { type: string, enum: [signed_in, linked, already, merge, pending] }
+        me: { $ref: "#/components/schemas/Me" }
+        merge: { $ref: "#/components/schemas/MergeOffer" }
+
+    MergeOffer:
+      type: object
+      required: [token, other]
+      properties:
+        token: { type: string, description: For `/v1/auth/merge`; good for 10 minutes. }
+        other: { $ref: "#/components/schemas/Profile" }
+
+    PublicUser:
+      type: object
+      required: [id, name, avatar, guest, joinedAt]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        avatar: { type: string }
+        guest: { type: boolean }
+        banned: { type: boolean }
+        joinedAt: { type: string, format: date-time }
+
+    ProfileStats:
+      type: object
+      required: [games, rounds, best, avgRound, perfect, km]
+      properties:
+        games: { type: integer }
+        rounds: { type: integer }
+        best: { type: integer }
+        avgRound: { type: integer }
+        perfect: { type: integer, description: Rounds scored 4 900 or more. }
+        km: { type: number, format: double, description: All guesses' distances added up. }
+
+    StreetProgress:
+      type: object
+      required: [seen, learned, total]
+      properties:
+        seen: { type: integer, description: Streets been on. }
+        learned: { type: integer, description: Streets guessed within 500 m at least once. }
+        total: { type: integer, description: Streets in the game. }
+
+    MapBest:
+      type: object
+      required: [map, games, best, rounds, gameId]
+      properties:
+        map: { $ref: "#/components/schemas/MapRef" }
+        games: { type: integer }
+        best: { type: integer, description: Total of the best game (best per round). }
+        rounds: { type: integer, description: Rounds of that game. }
+        gameId: { type: string, format: uuid }
+
+    Profile:
+      type: object
+      required: [user, stats, streets, maps, recent]
+      properties:
+        user: { $ref: "#/components/schemas/PublicUser" }
+        stats: { $ref: "#/components/schemas/ProfileStats" }
+        streets: { $ref: "#/components/schemas/StreetProgress" }
+        maps:
+          type: array
+          items: { $ref: "#/components/schemas/MapBest" }
+        recent:
+          type: array
+          description: The last finished games, newest first.
+          items: { $ref: "#/components/schemas/GameListItem" }
+
+    ProfileUpdate:
+      type: object
+      properties:
+        name: { type: string, minLength: 1, maxLength: 64 }
+        avatar: { type: string }
 
     Movement:
       type: string
@@ -513,9 +874,10 @@ components:
 
     Game:
       type: object
-      required: [id, map, rules, status, startedAt, total, max, rounds]
+      required: [id, map, rules, status, startedAt, total, max, rounds, player]
       properties:
         id: { type: string, format: uuid }
+        player: { $ref: "#/components/schemas/PublicUser" }
         map: { $ref: "#/components/schemas/MapSummary" }
         rules: { $ref: "#/components/schemas/Rules" }
         status: { $ref: "#/components/schemas/GameStatus" }

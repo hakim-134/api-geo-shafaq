@@ -9,6 +9,9 @@
 //	shafaq-tools stats                        what is in the library
 //	shafaq-tools google                       Google panoramas near the library points (GOOGLE_MAPS_KEY)
 //	shafaq-tools setup -pbf …                 all of the above, in order, on an empty database
+//	shafaq-tools reports                      players reported by others, not yet looked at
+//	shafaq-tools ban <id|name> [reason]       a player can no longer start games; closes their reports
+//	shafaq-tools unban <id|name>
 //
 // Settings come from the environment, like the API's.
 package main
@@ -36,7 +39,7 @@ import (
 
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Fprintln(os.Stderr, "usage: shafaq-tools <migrate|places|v0|demo|maps|tag|stats|google|setup> [flags]")
+		fmt.Fprintln(os.Stderr, "usage: shafaq-tools <migrate|places|v0|demo|maps|tag|stats|google|setup|reports|ban|unban> [flags]")
 		os.Exit(2)
 	}
 	cmd, args := os.Args[1], os.Args[2:]
@@ -58,9 +61,12 @@ func main() {
 	}
 	defer pool.Close()
 
-	if cmd == "google" {
+	switch cmd {
+	case "google":
 		err = library.ScanGoogle(ctx, pool, cfg.GoogleMapsKey, os.Stdout)
-	} else {
+	case "reports", "ban", "unban":
+		err = moderate(ctx, store.New(pool), cmd, fs.Args())
+	default:
 		err = run(ctx, pool, cmd, *pbf)
 	}
 	if err != nil {

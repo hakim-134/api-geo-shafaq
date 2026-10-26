@@ -37,7 +37,7 @@ func (q *Queries) CreateSession(ctx context.Context, arg CreateSessionParams) er
 const createUser = `-- name: CreateUser :one
 INSERT INTO users (name, avatar, guest)
 VALUES ($1, $2, true)
-RETURNING id, name, avatar, guest, created_at, last_seen_at
+RETURNING id, name, avatar, guest, created_at, last_seen_at, banned_at, ban_reason
 `
 
 type CreateUserParams struct {
@@ -55,6 +55,8 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (User, e
 		&i.Guest,
 		&i.CreatedAt,
 		&i.LastSeenAt,
+		&i.BannedAt,
+		&i.BanReason,
 	)
 	return i, err
 }
@@ -72,7 +74,7 @@ func (q *Queries) DeleteExpiredSessions(ctx context.Context) (int64, error) {
 }
 
 const getUser = `-- name: GetUser :one
-SELECT id, name, avatar, guest, created_at, last_seen_at FROM users WHERE id = $1
+SELECT id, name, avatar, guest, created_at, last_seen_at, banned_at, ban_reason FROM users WHERE id = $1
 `
 
 func (q *Queries) GetUser(ctx context.Context, id uuid.UUID) (User, error) {
@@ -85,12 +87,14 @@ func (q *Queries) GetUser(ctx context.Context, id uuid.UUID) (User, error) {
 		&i.Guest,
 		&i.CreatedAt,
 		&i.LastSeenAt,
+		&i.BannedAt,
+		&i.BanReason,
 	)
 	return i, err
 }
 
 const sessionUser = `-- name: SessionUser :one
-SELECT u.id, u.name, u.avatar, u.guest, u.created_at, u.last_seen_at, s.last_used_at AS session_used_at
+SELECT u.id, u.name, u.avatar, u.guest, u.created_at, u.last_seen_at, u.banned_at, u.ban_reason, s.last_used_at AS session_used_at
 FROM sessions s
 JOIN users u ON u.id = s.user_id
 WHERE s.token_hash = $1 AND s.expires_at > now()
@@ -103,6 +107,8 @@ type SessionUserRow struct {
 	Guest         bool
 	CreatedAt     time.Time
 	LastSeenAt    time.Time
+	BannedAt      *time.Time
+	BanReason     string
 	SessionUsedAt time.Time
 }
 
@@ -117,6 +123,8 @@ func (q *Queries) SessionUser(ctx context.Context, tokenHash []byte) (SessionUse
 		&i.Guest,
 		&i.CreatedAt,
 		&i.LastSeenAt,
+		&i.BannedAt,
+		&i.BanReason,
 		&i.SessionUsedAt,
 	)
 	return i, err

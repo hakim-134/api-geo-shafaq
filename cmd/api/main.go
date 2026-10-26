@@ -70,7 +70,7 @@ func run() error {
 		Config:  cfg,
 		DB:      pool,
 		Valkey:  valkey,
-		Players: &players.Service{Q: q, TTL: cfg.SessionTTL},
+		Players: &players.Service{Pool: pool, Q: q, TTL: cfg.SessionTTL},
 		Games: &game.Service{
 			Pool: pool, Catalog: catalog, Reg: reg,
 			Usage: provider.Usage{Q: q, YandexLimit: cfg.YandexDailyLimit, Caps: cfg.DailyCaps},

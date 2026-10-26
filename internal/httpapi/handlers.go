@@ -68,15 +68,12 @@ func (s *Server) GetMe(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) writeMe(w http.ResponseWriter, r *http.Request, u *storeUser) {
-	st, err := s.players.Stats(r.Context(), *u)
+	me, err := s.meOut(r.Context(), *u)
 	if err != nil {
 		fail(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, oapi.Me{
-		User:  oapi.User{Id: u.ID, Name: u.Name, Avatar: u.Avatar, Guest: u.Guest},
-		Stats: oapi.Stats{Games: st.Games, Best: st.Best, AvgRound: st.AvgRound},
-	})
+	writeJSON(w, http.StatusOK, me)
 }
 
 func (s *Server) ListMyGames(w http.ResponseWriter, r *http.Request, params oapi.ListMyGamesParams) {
@@ -212,6 +209,10 @@ func (s *Server) CreateGame(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "bad_input")
 		return
 	}
+	if u.BannedAt != nil {
+		writeError(w, http.StatusForbidden, "banned")
+		return
+	}
 	if !s.allow(w, r, "game:"+u.ID.String(), 120, time.Hour) {
 		return
 	}
@@ -220,7 +221,7 @@ func (s *Server) CreateGame(w http.ResponseWriter, r *http.Request) {
 		fail(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusCreated, gameOut(g, s.games.Reg.Allowed(g.Rules.Providers)))
+	writeJSON(w, http.StatusCreated, gameOut(g, s.games.Reg.Allowed(g.Rules.Providers), publicUser(*u)))
 }
 
 func (s *Server) GetGame(w http.ResponseWriter, r *http.Request, id oapi.GameId) {
@@ -233,7 +234,12 @@ func (s *Server) GetGame(w http.ResponseWriter, r *http.Request, id oapi.GameId)
 		fail(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, gameOut(g, s.games.Reg.Allowed(g.Rules.Providers)))
+	player, err := s.gamePlayer(r.Context(), g.UserID)
+	if err != nil {
+		fail(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, gameOut(g, s.games.Reg.Allowed(g.Rules.Providers), player))
 }
 
 func (s *Server) NextRound(w http.ResponseWriter, r *http.Request, id oapi.GameId) {

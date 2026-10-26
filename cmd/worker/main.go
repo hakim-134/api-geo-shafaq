@@ -1,6 +1,6 @@
 // Command shafaq-worker runs the background jobs (River): the Yandex usage warnings and the
-// cleanup. One is enough; River makes sure each job runs once even with more. It also has
-// the Telegram bot answer messages with the chat's ID (jobs.Telegram.WhoAmI).
+// cleanup. One is enough; River makes sure each job runs once even with more. It also runs
+// the players' Telegram bot: "sign in with Telegram", and the chat IDs for alerts (jobs.Bot).
 package main
 
 import (
@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -17,6 +18,8 @@ import (
 	"github.com/hakim-134/api-geo-shafaq/internal/jobs"
 	"github.com/hakim-134/api-geo-shafaq/internal/metrics"
 	"github.com/hakim-134/api-geo-shafaq/internal/platform"
+	"github.com/hakim-134/api-geo-shafaq/internal/players"
+	"github.com/hakim-134/api-geo-shafaq/internal/store"
 )
 
 func main() {
@@ -46,8 +49,10 @@ func run() error {
 		return err
 	}
 	go metrics.Serve(ctx, cfg.MetricsAddr)
-	// the bot answers any message with the chat's ID: how the owner finds TELEGRAM_ALERT_CHAT
-	go jobs.Telegram{Token: cfg.TelegramAlertToken, Client: &http.Client{Timeout: time.Minute}}.WhoAmI(ctx)
+	accounts := &players.Service{Pool: pool, Q: store.New(pool), TTL: cfg.SessionTTL}
+	go jobs.Telegram{Token: cfg.TelegramBotToken, Client: &http.Client{Timeout: time.Minute}}.Run(ctx, jobs.Bot{
+		Confirm: accounts.ConfirmTelegram, GameURL: gameURL(cfg.WebOrigins),
+	})
 	if err := client.Start(ctx); err != nil {
 		return err
 	}
@@ -56,4 +61,15 @@ func run() error {
 	stopCtx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 	return client.Stop(stopCtx)
+}
+
+// gameURL is the game's address for the bot's welcome: the first web origin without a
+// wildcard port.
+func gameURL(origins []string) string {
+	for _, o := range origins {
+		if !strings.HasSuffix(o, ":*") {
+			return o
+		}
+	}
+	return "https://geo.shafaq.uz"
 }

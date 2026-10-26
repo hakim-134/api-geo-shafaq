@@ -36,6 +36,12 @@ type Config struct {
 
 	TelegramAlertToken string // bot token for warnings to the owner (optional)
 	TelegramAlertChat  string
+	// TelegramBotToken: the players' bot, for "sign in with Telegram" (the bot's deep link and
+	// the Mini App). Defaults to the alert bot's token. Empty = no Telegram sign-in.
+	TelegramBotToken string
+	// GoogleClientID: the OAuth client of Google's sign-in button (Google Cloud console →
+	// Credentials; free, no billing). Empty = no Google sign-in.
+	GoogleClientID string
 
 	LogFormat    string // text | json
 	LogLevel     string
@@ -64,6 +70,8 @@ func Load() (Config, error) {
 		GoogleMapsKey:      env("GOOGLE_MAPS_KEY", ""),
 		TelegramAlertToken: env("TELEGRAM_ALERT_TOKEN", ""),
 		TelegramAlertChat:  env("TELEGRAM_ALERT_CHAT", ""),
+		TelegramBotToken:   env("TELEGRAM_BOT_TOKEN", env("TELEGRAM_ALERT_TOKEN", "")),
+		GoogleClientID:     env("GOOGLE_CLIENT_ID", ""),
 		LogFormat:          env("LOG_FORMAT", "text"),
 		LogLevel:           env("LOG_LEVEL", "info"),
 		Version:            env("VERSION", "dev"),

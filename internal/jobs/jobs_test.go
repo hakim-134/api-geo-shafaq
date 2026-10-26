@@ -3,6 +3,7 @@ package jobs
 import (
 	"context"
 	"errors"
+	"github.com/hakim-134/api-geo-shafaq/internal/auth"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -152,7 +153,7 @@ func (failing) RoundTrip(*http.Request) (*http.Response, error) {
 	return nil, errors.New("connection refused")
 }
 
-func TestWhoAmIAnswersWithChatID(t *testing.T) {
+func TestBotAnswersGroupsWithChatID(t *testing.T) {
 	replies := make(chan string, 1)
 	polls := 0
 	mux := http.NewServeMux()
@@ -178,13 +179,57 @@ func TestWhoAmIAnswersWithChatID(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	go Telegram{Token: "t", Base: srv.URL, Client: srv.Client()}.WhoAmI(ctx)
+	go Telegram{Token: "t", Base: srv.URL, Client: srv.Client()}.Run(ctx, Bot{})
 	select {
 	case text := <-replies:
 		for _, want := range []string{"<code>-100123</code>", "Shafaq &lt;alerts&gt;", "<code>42</code>", "TELEGRAM_ALERT_CHAT=-100123"} {
 			if !strings.Contains(text, want) {
 				t.Errorf("reply %q lacks %q", text, want)
 			}
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("no reply")
+	}
+}
+
+func TestBotConfirmsSignIn(t *testing.T) {
+	replies := make(chan string, 1)
+	polls := 0
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /bott/getUpdates", func(w http.ResponseWriter, r *http.Request) {
+		polls++
+		if polls > 1 {
+			w.Write([]byte(`{"ok":true,"result":[]}`))
+			return
+		}
+		w.Write([]byte(`{"ok":true,"result":[{"update_id":8,"message":{"text":"/start login_abc","chat":{"id":42,"type":"private"},` +
+			`"from":{"id":42,"first_name":"Ali","username":"ali","language_code":"ru"}}}]}`))
+	})
+	mux.HandleFunc("POST /bott/sendMessage", func(w http.ResponseWriter, r *http.Request) {
+		r.ParseForm()
+		replies <- r.Form.Get("text")
+		w.Write([]byte(`{"ok":true,"result":{}}`))
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	var got auth.TelegramUser
+	var code string
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go Telegram{Token: "t", Base: srv.URL, Client: srv.Client()}.Run(ctx, Bot{
+		Confirm: func(_ context.Context, c string, u auth.TelegramUser) (bool, error) {
+			code, got = c, u
+			return true, nil
+		},
+	})
+	select {
+	case text := <-replies:
+		if code != "abc" || got.ID != 42 || got.Username != "ali" {
+			t.Errorf("confirmed %q for %+v", code, got)
+		}
+		if !strings.Contains(text, "Готово") {
+			t.Errorf("reply %q is not the Russian confirmation", text)
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("no reply")

@@ -33,6 +33,9 @@ services:
       YANDEX_CABINET_KEY: ${YANDEX_CABINET_KEY:-}
       TELEGRAM_ALERT_TOKEN: ${TELEGRAM_ALERT_TOKEN:-}
       TELEGRAM_ALERT_CHAT: ${TELEGRAM_ALERT_CHAT:-}
+      # sign-in: the players' bot (unset = the alert bot) and Google's sign-in button
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
     ports: ["8131:8131"]
     networks: [infra]
 

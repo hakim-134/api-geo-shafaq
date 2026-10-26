@@ -158,7 +158,7 @@ func (w *QuotaCheck) Work(ctx context.Context, _ *river.Job[QuotaCheckArgs]) err
 	return w.Q.MarkUsageWarned(ctx, store.MarkUsageWarnedParams(day))
 }
 
-// CleanupArgs: drop expired sessions, mark games nobody finished as abandoned.
+// CleanupArgs: drop expired sessions and sign-in codes, mark games nobody finished as abandoned.
 type CleanupArgs struct{}
 
 func (CleanupArgs) Kind() string { return "cleanup" }
@@ -177,7 +177,11 @@ func (w *Cleanup) Work(ctx context.Context, _ *river.Job[CleanupArgs]) error {
 	if err != nil {
 		return err
 	}
-	slog.Info("cleanup", "expired_sessions", sessions, "abandoned_games", games)
+	logins, err := w.Q.DeleteExpiredAuth(ctx)
+	if err != nil {
+		return err
+	}
+	slog.Info("cleanup", "expired_sessions", sessions, "abandoned_games", games, "expired_logins", logins)
 	return nil
 }
 

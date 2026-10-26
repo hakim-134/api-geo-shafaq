@@ -89,9 +89,9 @@ func rulesIn(r *oapi.Rules) *rules.Rules {
 }
 
 // gameOut describes the map as this game plays it: counted for the game's providers.
-func gameOut(g *game.Game, allowed map[string]bool) oapi.Game {
+func gameOut(g *game.Game, allowed map[string]bool, player oapi.PublicUser) oapi.Game {
 	out := oapi.Game{
-		Id: g.ID, Map: mapSummary(g.Map, allowed, nil), Rules: rulesOut(g.Rules), Status: oapi.GameStatus(g.Status),
+		Id: g.ID, Player: player, Map: mapSummary(g.Map, allowed, nil), Rules: rulesOut(g.Rules), Status: oapi.GameStatus(g.Status),
 		StartedAt: g.StartedAt, FinishedAt: g.FinishedAt, Total: g.Total, Max: g.Max(),
 		Rounds: make([]oapi.Round, 0, len(g.Rounds)),
 	}
