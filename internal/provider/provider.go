@@ -47,25 +47,43 @@ type Provider interface {
 	View(p Pano, near geo.Point, snapKm, heading float64) View
 }
 
-// Registry holds the enabled providers in order of preference.
+// Registry holds the enabled providers in two tiers. Players' providers (PROVIDERS, in order
+// of preference) are what a game gets when its rules name none, and what the menu counts.
+// Test providers (TEST_PROVIDERS) play only in games that ask for them by name: development
+// and the smoke test use `demo` this way, and a new provider can be tried before players see
+// it.
 type Registry struct {
 	list []Provider
+	test []Provider
 }
 
-func NewRegistry(enabled []string, all ...Provider) (*Registry, error) {
+func NewRegistry(enabled, test []string, all ...Provider) (*Registry, error) {
 	r := &Registry{}
-	for _, name := range enabled {
-		i := slices.IndexFunc(all, func(p Provider) bool { return p.Name() == name })
-		if i < 0 {
-			return nil, fmt.Errorf("unknown panorama provider %q", name)
+	pick := func(names []string, into *[]Provider) error {
+		for _, name := range names {
+			i := slices.IndexFunc(all, func(p Provider) bool { return p.Name() == name })
+			if i < 0 {
+				return fmt.Errorf("unknown panorama provider %q", name)
+			}
+			if _, ok := r.Get(name); ok {
+				return fmt.Errorf("panorama provider %q enabled twice", name)
+			}
+			*into = append(*into, all[i])
 		}
-		r.list = append(r.list, all[i])
+		return nil
+	}
+	if err := pick(enabled, &r.list); err != nil {
+		return nil, err
+	}
+	if err := pick(test, &r.test); err != nil {
+		return nil, err
 	}
 	return r, nil
 }
 
+// Get finds an enabled provider of either tier.
 func (r *Registry) Get(name string) (Provider, bool) {
-	for _, p := range r.list {
+	for _, p := range slices.Concat(r.list, r.test) {
 		if p.Name() == name {
 			return p, true
 		}
@@ -73,21 +91,33 @@ func (r *Registry) Get(name string) (Provider, bool) {
 	return nil, false
 }
 
-// Names are the enabled providers.
-func (r *Registry) Names() []string {
-	out := make([]string, len(r.list))
-	for i, p := range r.list {
+// Names are the players' providers.
+func (r *Registry) Names() []string { return names(r.list) }
+
+// Known are all enabled providers, test ones included: what a game's rules may name.
+func (r *Registry) Known() []string { return names(slices.Concat(r.list, r.test)) }
+
+func names(ps []Provider) []string {
+	out := make([]string, len(ps))
+	for i, p := range ps {
 		out[i] = p.Name()
 	}
 	return out
 }
 
-// Allowed is the set a game may use: the rule's list (empty = all), within what is enabled.
+// Allowed is the set a game may use: the players' providers when the rules name none,
+// otherwise the named ones that are enabled, test ones included.
 func (r *Registry) Allowed(wanted []string) map[string]bool {
 	out := map[string]bool{}
-	for _, p := range r.list {
-		if len(wanted) == 0 || slices.Contains(wanted, p.Name()) {
+	if len(wanted) == 0 {
+		for _, p := range r.list {
 			out[p.Name()] = true
+		}
+		return out
+	}
+	for _, name := range wanted {
+		if _, ok := r.Get(name); ok {
+			out[name] = true
 		}
 	}
 	return out

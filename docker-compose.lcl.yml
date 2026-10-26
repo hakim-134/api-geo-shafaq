@@ -24,8 +24,10 @@ services:
       VALKEY_URL: redis://redis:6379/1
       # the laptop, and a phone on its Wi-Fi hotspot
       WEB_ORIGINS: http://localhost:*,http://127.0.0.1:*,http://10.42.0.1:*
-      # demo first: testing never spends the free Yandex key's ~100 views a day
-      PROVIDERS: demo,yandex
+      # players get Yandex only, as on the server; demo plays only in games that ask for it
+      # (smoke tests, Claude's browser checks), so testing never spends the free Yandex views
+      PROVIDERS: yandex
+      TEST_PROVIDERS: demo
       YANDEX_DAILY_LIMIT: ${YANDEX_DAILY_LIMIT:-100}
       YANDEX_CABINET_KEY: ${YANDEX_CABINET_KEY:-}
       TELEGRAM_ALERT_TOKEN: ${TELEGRAM_ALERT_TOKEN:-}

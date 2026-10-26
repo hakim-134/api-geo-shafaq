@@ -7,8 +7,10 @@ export VALKEY_URL=redis://127.0.0.1:6379/1
 export TEST_DATABASE_URL=$DATABASE_URL
 export WEB_ORIGINS=http://localhost:*,http://127.0.0.1:*
 # PUBLIC_URL unset: demo images are linked relative to the API, so a phone on the LAN works too
-# demo first: development never spends the free Yandex key's ~100 views a day
-export PROVIDERS=demo,yandex
+# players get Yandex only; demo plays only in games that name it (the smoke test, the web app's
+# test switch), so development never spends the free Yandex key's ~100 views a day
+export PROVIDERS=yandex
+export TEST_PROVIDERS=demo
 export YANDEX_DAILY_LIMIT=100
 # export YANDEX_CABINET_KEY=       # Developer's Account API key: the worker reads Yandex's own count
 # export GOOGLE_MAPS_KEY=          # for `shafaq-tools google` (free Street View metadata look-ups)

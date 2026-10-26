@@ -40,6 +40,7 @@ func run() error {
 		return err
 	}
 	platform.SetupLogging(cfg)
+	defer platform.FlushErrors()
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
@@ -55,7 +56,7 @@ func run() error {
 	defer valkey.Close()
 
 	demo := provider.Demo{Secret: []byte(cfg.DemoSecret), BaseURL: cfg.PublicURL}
-	reg, err := provider.NewRegistry(cfg.Providers, provider.Yandex{}, provider.Google{}, demo)
+	reg, err := provider.NewRegistry(cfg.Providers, cfg.TestProviders, provider.Yandex{}, provider.Google{}, demo)
 	if err != nil {
 		return err
 	}
@@ -86,7 +87,7 @@ func run() error {
 	}
 	errc := make(chan error, 1)
 	go func() {
-		slog.Info("shafaq-api listening", "addr", cfg.Addr, "providers", reg.Names(), "origins", cfg.WebOrigins)
+		slog.Info("shafaq-api listening", "addr", cfg.Addr, "providers", reg.Names(), "test_providers", cfg.TestProviders, "origins", cfg.WebOrigins)
 		errc <- srv.ListenAndServe()
 	}()
 

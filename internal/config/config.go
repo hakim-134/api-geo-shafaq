@@ -23,7 +23,8 @@ type Config struct {
 	CookieDomain string // empty = the API's host only
 	SessionTTL   time.Duration
 
-	Providers        []string // enabled panorama providers, in order of preference
+	Providers        []string // the players' panorama providers, in order of preference
+	TestProviders    []string // enabled only for games that name them (demo: development, smoke tests)
 	DemoSecret       string   // signs the demo provider's opaque references
 	YandexDailyLimit int      // the free key's daily panorama views
 	YandexCabinetKey string   // Developer's Account API: Yandex's own request counts (optional)
@@ -32,9 +33,11 @@ type Config struct {
 	TelegramAlertToken string // bot token for warnings to the owner (optional)
 	TelegramAlertChat  string
 
-	LogFormat string // text | json
-	LogLevel  string
-	Version   string
+	LogFormat    string // text | json
+	LogLevel     string
+	Version      string
+	Environment  string // local | dev | prod: tags error reports
+	GlitchtipDSN string // error tracking (GlitchTip, Sentry protocol); empty = off
 }
 
 func Load() (Config, error) {
@@ -49,7 +52,8 @@ func Load() (Config, error) {
 		CookieSecure:       boolean(env("COOKIE_SECURE", "false")),
 		CookieDomain:       env("COOKIE_DOMAIN", ""),
 		SessionTTL:         365 * 24 * time.Hour,
-		Providers:          list(env("PROVIDERS", "yandex,demo")),
+		Providers:          list(env("PROVIDERS", "yandex")),
+		TestProviders:      list(env("TEST_PROVIDERS", "")),
 		DemoSecret:         env("DEMO_SECRET", "dev-only-demo-secret"),
 		YandexDailyLimit:   integer(env("YANDEX_DAILY_LIMIT", "100")),
 		YandexCabinetKey:   env("YANDEX_CABINET_KEY", ""),
@@ -59,6 +63,8 @@ func Load() (Config, error) {
 		LogFormat:          env("LOG_FORMAT", "text"),
 		LogLevel:           env("LOG_LEVEL", "info"),
 		Version:            env("VERSION", "dev"),
+		Environment:        env("ENVIRONMENT", "local"),
+		GlitchtipDSN:       env("GLITCHTIP_DSN", ""),
 	}
 	if c.DatabaseURL == "" {
 		return c, fmt.Errorf("DATABASE_URL is empty")

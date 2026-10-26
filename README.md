@@ -42,7 +42,9 @@ container, migrations at start, then the worker and the API on :8131).
 | `cmd/tools` | `migrate`, `places`, `v0`, `demo`, `maps`, `tag`, `stats`, `google`, `setup` |
 | `internal/game` | solo games: round picking, the clock, hints, scoring |
 | `internal/maps` | maps (the official four for now) and the round picker |
-| `internal/provider` | the panorama providers behind one interface: `yandex`, `google`, `demo` |
+| `internal/provider` | the panorama providers behind one interface: `yandex`, `google`, `demo`. `PROVIDERS` are what players get (and what the menu counts); `TEST_PROVIDERS` play only in games that name them |
+| `internal/platform` | logging, and error tracking: Error lines also go to GlitchTip when `GLITCHTIP_DSN` is set |
+| `deploy/` | the server: Caddy, Prometheus, Loki/Alloy, Grafana (dashboard), the db image with pgBackRest, `deploy.sh`, `env.example` |
 | `internal/places` | the place tree from OSM, outlines, "where is this point" |
 | `internal/score`, `internal/rules` | the score formula and the one rule set |
 | `internal/players` | guests (🐼_42) and sessions |
@@ -82,11 +84,23 @@ while the worker runs, or send `/id` in a group, and it answers with the ID):
 
 Days run by Moscow time, as Yandex resets its limits. Buy the commercial license before launch.
 
-## Docker
+## The server
 
-`docker compose up -d --build` runs everything as on the server, its own Postgres + PostGIS and
-Valkey included: `migrate` once, then `api` and `worker`. Settings come from the environment (`.envrc.example` lists them; secrets never go into
-the repo). Prometheus metrics are on `METRICS_ADDR` (private), health on `/v1/health`, readiness
-on `/v1/ready`.
+`docker-compose.yml` is the whole server: Caddy (HTTPS) in front of the game's files and the
+API; `migrate`, `api`, `worker`; Postgres 17 + PostGIS with pgBackRest, and Valkey; Prometheus,
+Loki with Alloy, Grafana and GlitchTip. Its settings and secrets are in `.env` next to it on the
+server (`deploy/env.example`). Deploys are by hand, there is no CI: `deploy/deploy.sh` on the
+server pulls `main`, rebuilds, migrates and restarts.
+
+- **Metrics:** each binary serves Prometheus metrics on `METRICS_ADDR` (never public); Grafana's
+  "Shafaq Geo" dashboard is provisioned from `deploy/grafana/`.
+- **Logs:** JSON on stderr (`LOG_FORMAT=json`); Alloy ships every container's lines to Loki.
+- **Errors:** every Error log line (a panic, a 5xx, a failed job) goes to GlitchTip when
+  `GLITCHTIP_DSN` is set (`internal/platform/errors.go`).
+- **Backups:** `deploy/postgres/`: WAL archived continuously, full backup on Sundays,
+  differential on other nights, encrypted, to S3-compatible storage (`BACKUP_*`); every Sunday
+  `restore-test.sh` restores the backup beside the live database and compares them. By hand:
+  `docker compose exec -u postgres db restore-test.sh`.
+- Health: `/v1/health`; readiness (database and Valkey): `/v1/ready`.
 
 Data: places, streets and metro © OpenStreetMap contributors (ODbL).

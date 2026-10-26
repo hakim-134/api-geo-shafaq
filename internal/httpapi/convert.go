@@ -33,11 +33,13 @@ func textPtr(t *places.Text) *oapi.Text {
 
 func point(p geo.Point) oapi.LatLon { return oapi.LatLon{Lat: p.Lat, Lon: p.Lon} }
 
-func mapSummary(m *maps.Map, seen map[int64]bool) oapi.MapSummary {
+// mapSummary counts only the players' providers (allowed), never test ones.
+func mapSummary(m *maps.Map, allowed map[string]bool, seen map[int64]bool) oapi.MapSummary {
+	shown := m.Shown(allowed)
 	out := oapi.MapSummary{
 		Slug: m.Slug, Name: text(m.Name), Description: text(m.Desc), Official: m.Official,
-		Panoramas: len(m.Cands), Groups: m.Groups(), Bbox: m.BBox[:], SizeKm: m.SizeKm,
-		Rules: rulesOut(m.Rules), Providers: m.Providers(),
+		Panoramas: shown.Panoramas, Groups: shown.Groups, Bbox: m.BBox[:], SizeKm: m.SizeKm,
+		Rules: rulesOut(m.Rules), Providers: shown.Providers,
 	}
 	if m.Outline != "" {
 		out.Outline = &m.Outline
@@ -45,12 +47,12 @@ func mapSummary(m *maps.Map, seen map[int64]bool) oapi.MapSummary {
 	if m.Pick.StreetsOnly {
 		streets := true
 		out.Streets = &streets
-		out.Groups = m.Streets
+		out.Groups = shown.Streets
 		if seen != nil {
 			n := 0
 			counted := map[int64]bool{}
 			for _, c := range m.Cands {
-				if seen[c.StreetID] && !counted[c.StreetID] {
+				if allowed[c.Provider] && seen[c.StreetID] && !counted[c.StreetID] {
 					counted[c.StreetID] = true
 					n++
 				}
@@ -86,9 +88,10 @@ func rulesIn(r *oapi.Rules) *rules.Rules {
 	}
 }
 
-func gameOut(g *game.Game) oapi.Game {
+// gameOut describes the map as this game plays it: counted for the game's providers.
+func gameOut(g *game.Game, allowed map[string]bool) oapi.Game {
 	out := oapi.Game{
-		Id: g.ID, Map: mapSummary(g.Map, nil), Rules: rulesOut(g.Rules), Status: oapi.GameStatus(g.Status),
+		Id: g.ID, Map: mapSummary(g.Map, allowed, nil), Rules: rulesOut(g.Rules), Status: oapi.GameStatus(g.Status),
 		StartedAt: g.StartedAt, FinishedAt: g.FinishedAt, Total: g.Total, Max: g.Max(),
 		Rounds: make([]oapi.Round, 0, len(g.Rounds)),
 	}

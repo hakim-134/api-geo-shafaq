@@ -433,7 +433,9 @@ components:
         compass: { type: boolean }
         providers:
           type: array
-          description: Allowed panorama providers; empty = any provider that covers the place.
+          description: >-
+            Allowed panorama providers; empty = the players' providers (PROVIDERS) that cover the
+            place. Test providers (TEST_PROVIDERS, e.g. demo) play only when named here.
           items: { type: string }
         scoreScale:
           type: number
@@ -456,7 +458,7 @@ components:
         name: { $ref: "#/components/schemas/Text" }
         description: { $ref: "#/components/schemas/Text" }
         official: { type: boolean }
-        panoramas: { type: integer, description: Active panoramas in the map. }
+        panoramas: { type: integer, description: "Active panoramas in the map, on the players' providers." }
         groups:
           type: integer
           description: Streets (on a street map) or places the panoramas are grouped by.
@@ -476,7 +478,9 @@ components:
         rules: { $ref: "#/components/schemas/Rules" }
         providers:
           type: array
-          description: Providers with panoramas in this map.
+          description: >-
+            The players' providers with panoramas in this map. Test providers are never listed
+            and never counted in `panoramas` or `groups`.
           items: { type: string }
         outline:
           type: string

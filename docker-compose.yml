@@ -1,78 +1,78 @@
-# The whole stack, locally and on the server.
+# The server's whole stack (the laptop runs docker-compose.lcl.yml instead).
 #
-#   docker compose up -d db valkey          # just the data, run the Go code with `make run`
-#   docker compose up -d --build            # everything, as on the server
+#   deploy/deploy.sh          # on the server: update to main and restart what changed
 #
-# Ports are on 127.0.0.1 only; on the server Caddy/nginx sits in front of the API.
-# Settings come from the environment (.envrc via direnv, or a .env file next to this one).
+# Settings and secrets come from .env next to this file on the server (deploy/env.example lists
+# them; never in git). Only Caddy is public (80/443); everything else talks on the stack's own
+# network, and the API's metrics port never leaves it.
+#
+#   game     caddy → web files (/srv/shafaq/web) and the api
+#   data     db (Postgres 17 + PostGIS, pgBackRest backups), valkey
+#   watch    prometheus, loki, alloy (logs), grafana, glitchtip (errors)
 
-name: shafaq-geo
+name: shafaq
+
+x-env: &env
+  DATABASE_URL: postgres://shafaq:${DB_PASSWORD:?}@db:5432/shafaq?sslmode=disable
+  VALKEY_URL: redis://valkey:6379/0
+  WEB_ORIGINS: https://${WEB_DOMAIN:?}
+  PUBLIC_URL: https://${API_DOMAIN:?}
+  TRUST_PROXY: "true"
+  COOKIE_SECURE: "true"
+  COOKIE_DOMAIN: ${COOKIE_DOMAIN:-}
+  PROVIDERS: ${PROVIDERS:-yandex}
+  TEST_PROVIDERS: ${TEST_PROVIDERS:-}
+  DEMO_SECRET: ${DEMO_SECRET:-}
+  YANDEX_DAILY_LIMIT: ${YANDEX_DAILY_LIMIT:-100}
+  YANDEX_CABINET_KEY: ${YANDEX_CABINET_KEY:-}
+  TELEGRAM_ALERT_TOKEN: ${TELEGRAM_ALERT_TOKEN:-}
+  TELEGRAM_ALERT_CHAT: ${TELEGRAM_ALERT_CHAT:-}
+  GLITCHTIP_DSN: ${GLITCHTIP_DSN:-}
+  ENVIRONMENT: ${ENVIRONMENT:-dev}
+  LOG_FORMAT: json
 
 services:
-  db:
-    image: postgis/postgis:17-3.5
+  # ---------- game ----------
+  caddy:
+    image: caddy:2.10.2-alpine
     restart: unless-stopped
+    ports: ["${HTTP_PORT:-80}:80", "${HTTPS_PORT:-443}:443"]
     environment:
-      POSTGRES_DB: shafaq
-      POSTGRES_USER: shafaq
-      POSTGRES_PASSWORD: ${DB_PASSWORD:-shafaq}
-    ports: ["127.0.0.1:${DB_PORT:-5433}:5432"]
-    volumes: [db:/var/lib/postgresql/data]
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U shafaq -d shafaq"]
-      interval: 5s
-      timeout: 3s
-      retries: 20
-
-  valkey:
-    image: valkey/valkey:8-alpine
-    restart: unless-stopped
-    command: ["valkey-server", "--save", "60", "1", "--appendonly", "no"]
-    ports: ["127.0.0.1:${VALKEY_PORT:-6380}:6379"]
-    volumes: [valkey:/data]
-    healthcheck:
-      test: ["CMD", "valkey-cli", "ping"]
-      interval: 5s
-      timeout: 3s
-      retries: 20
+      WEB_DOMAIN: ${WEB_DOMAIN:?}
+      API_DOMAIN: ${API_DOMAIN:?}
+      STATS_DOMAIN: ${STATS_DOMAIN:?}
+      ERRORS_DOMAIN: ${ERRORS_DOMAIN:?}
+    volumes:
+      - ./deploy/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ${WEB_ROOT:-/srv/shafaq/web}:/srv/web:ro
+      - caddy:/data
+    depends_on: [api]
 
   # Runs the migrations once, then exits; the API and the worker wait for it.
   migrate:
-    build: .
+    build: { context: ., args: { VERSION: "${VERSION:-dev}" } }
+    image: shafaq-api:local
     command: ["shafaq-tools", "migrate"]
-    environment: &env
-      DATABASE_URL: postgres://shafaq:${DB_PASSWORD:-shafaq}@db:5432/shafaq?sslmode=disable
-      VALKEY_URL: redis://valkey:6379/0
-      WEB_ORIGINS: ${WEB_ORIGINS:-https://geo.shafaq.uz}
-      PUBLIC_URL: ${PUBLIC_URL:-https://api.geo.shafaq.uz}
-      TRUST_PROXY: ${TRUST_PROXY:-true}
-      COOKIE_SECURE: ${COOKIE_SECURE:-true}
-      COOKIE_DOMAIN: ${COOKIE_DOMAIN:-}
-      PROVIDERS: ${PROVIDERS:-yandex}
-      DEMO_SECRET: ${DEMO_SECRET:-}
-      YANDEX_DAILY_LIMIT: ${YANDEX_DAILY_LIMIT:-100}
-      YANDEX_CABINET_KEY: ${YANDEX_CABINET_KEY:-}
-      TELEGRAM_ALERT_TOKEN: ${TELEGRAM_ALERT_TOKEN:-}
-      TELEGRAM_ALERT_CHAT: ${TELEGRAM_ALERT_CHAT:-}
-      LOG_FORMAT: json
+    environment: *env
     depends_on:
       db: { condition: service_healthy }
 
   api:
-    build: .
+    build: { context: ., args: { VERSION: "${VERSION:-dev}" } }
+    image: shafaq-api:local
     restart: unless-stopped
     command: ["shafaq-api"]
     environment:
       <<: *env
       ADDR: :8131
       METRICS_ADDR: :9131
-    ports: ["127.0.0.1:${API_PORT:-8131}:8131"]
     depends_on:
       migrate: { condition: service_completed_successfully }
       valkey: { condition: service_healthy }
 
   worker:
-    build: .
+    build: { context: ., args: { VERSION: "${VERSION:-dev}" } }
+    image: shafaq-api:local
     restart: unless-stopped
     command: ["shafaq-worker"]
     environment:
@@ -85,6 +85,126 @@ services:
     depends_on:
       migrate: { condition: service_completed_successfully }
 
+  # ---------- data ----------
+  db:
+    build: deploy/postgres
+    image: shafaq-db:local
+    restart: unless-stopped
+    shm_size: 256mb
+    environment:
+      POSTGRES_DB: shafaq
+      POSTGRES_USER: shafaq
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?}
+      # pgBackRest's repository: S3-compatible storage off the server (deploy/env.example);
+      # without one, the local volume `backups` (keeps a server crash, not a lost disk)
+      PGBACKREST_REPO1_TYPE: ${BACKUP_REPO_TYPE:-posix}
+      PGBACKREST_REPO1_PATH: ${BACKUP_REPO_PATH:-/var/lib/pgbackrest}
+      PGBACKREST_REPO1_S3_ENDPOINT: ${BACKUP_S3_ENDPOINT:-}
+      PGBACKREST_REPO1_S3_BUCKET: ${BACKUP_S3_BUCKET:-}
+      PGBACKREST_REPO1_S3_REGION: ${BACKUP_S3_REGION:-auto}
+      PGBACKREST_REPO1_S3_KEY: ${BACKUP_S3_KEY:-}
+      PGBACKREST_REPO1_S3_KEY_SECRET: ${BACKUP_S3_SECRET:-}
+      PGBACKREST_REPO1_S3_URI_STYLE: ${BACKUP_S3_URI_STYLE:-path}
+      PGBACKREST_REPO1_STORAGE_VERIFY_TLS: ${BACKUP_S3_VERIFY_TLS:-y}
+      PGBACKREST_REPO1_CIPHER_TYPE: aes-256-cbc
+      PGBACKREST_REPO1_CIPHER_PASS: ${BACKUP_PASSWORD:?}
+      BACKUP_HOUR: ${BACKUP_HOUR:-22} # UTC: 03:00 in Tashkent
+      TELEGRAM_ALERT_TOKEN: ${TELEGRAM_ALERT_TOKEN:-}
+      TELEGRAM_ALERT_CHAT: ${TELEGRAM_ALERT_CHAT:-}
+      ENVIRONMENT: ${ENVIRONMENT:-dev}
+    volumes:
+      - db:/var/lib/postgresql/data
+      - backups:/var/lib/pgbackrest
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U shafaq -d shafaq"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  valkey:
+    image: valkey/valkey:8-alpine
+    restart: unless-stopped
+    command: ["valkey-server", "--save", "60", "1", "--appendonly", "no"]
+    volumes: [valkey:/data]
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  # ---------- watch ----------
+  prometheus:
+    image: prom/prometheus:v3.10.0
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=30d
+    volumes:
+      - ./deploy/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus:/prometheus
+
+  loki:
+    image: grafana/loki:3.7.1
+    restart: unless-stopped
+    command: ["-config.file=/etc/loki/loki.yml"]
+    volumes:
+      - ./deploy/loki/loki.yml:/etc/loki/loki.yml:ro
+      - loki:/loki
+
+  alloy:
+    image: grafana/alloy:v1.20.1
+    restart: unless-stopped
+    command: ["run", "--storage.path=/var/lib/alloy", "/etc/alloy/config.alloy"]
+    environment:
+      COMPOSE_PROJECT: shafaq
+    volumes:
+      - ./deploy/alloy/config.alloy:/etc/alloy/config.alloy:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - alloy:/var/lib/alloy
+    depends_on: [loki]
+
+  grafana:
+    image: grafana/grafana:12.4.2
+    restart: unless-stopped
+    environment:
+      GF_SERVER_ROOT_URL: https://${STATS_DOMAIN:?}
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:?}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/shafaq.json
+    volumes:
+      - ./deploy/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./deploy/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana:/var/lib/grafana
+    depends_on: [prometheus, loki]
+
+  # Error tracking for the API, the worker and the game in the browser (Sentry protocol).
+  # One process (web + worker), its queue and cache in Postgres: no Valkey of its own.
+  glitchtip:
+    image: glitchtip/glitchtip:6.2.6
+    restart: unless-stopped
+    environment:
+      SERVER_ROLE: all_in_one
+      DATABASE_URL: postgres://shafaq:${DB_PASSWORD:?}@db:5432/glitchtip
+      VALKEY_URL: ""
+      SECRET_KEY: ${GLITCHTIP_SECRET:?}
+      GLITCHTIP_DOMAIN: https://${ERRORS_DOMAIN:?}
+      DEFAULT_FROM_EMAIL: errors@${ERRORS_DOMAIN:?}
+      EMAIL_URL: consolemail://
+      GLITCHTIP_MAX_EVENT_LIFE_DAYS: "30"
+    volumes: [glitchtip:/code/uploads]
+    depends_on:
+      db: { condition: service_healthy }
+
 volumes:
   db:
+  backups:
   valkey:
+  caddy:
+  prometheus:
+  loki:
+  alloy:
+  grafana:
+  glitchtip:

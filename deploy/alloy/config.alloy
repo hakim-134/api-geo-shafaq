@@ -1,0 +1,45 @@
+// Grafana Alloy on the server: ships every container's log lines of this stack to Loki,
+// labelled by service. The API and the worker log JSON, so Grafana can filter by any field
+// (level, route, status, err).
+
+discovery.docker "containers" {
+  host = "unix:///var/run/docker.sock"
+}
+
+discovery.relabel "stack" {
+  targets = discovery.docker.containers.targets
+
+  // only this compose project, not anything else on the server
+  rule {
+    source_labels = ["__meta_docker_container_label_com_docker_compose_project"]
+    regex         = sys.env("COMPOSE_PROJECT")
+    action        = "keep"
+  }
+  rule {
+    source_labels = ["__meta_docker_container_label_com_docker_compose_service"]
+    target_label  = "service"
+  }
+}
+
+loki.source.docker "stack" {
+  host       = "unix:///var/run/docker.sock"
+  targets    = discovery.relabel.stack.output
+  forward_to = [loki.process.levels.receiver]
+}
+
+// the JSON lines' level becomes a label, so "errors only" is a cheap query
+loki.process "levels" {
+  stage.json {
+    expressions = { level = "level" }
+  }
+  stage.labels {
+    values = { level = "" }
+  }
+  forward_to = [loki.write.local.receiver]
+}
+
+loki.write "local" {
+  endpoint {
+    url = "http://loki:3100/loki/api/v1/push"
+  }
+}

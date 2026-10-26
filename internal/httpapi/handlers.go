@@ -144,7 +144,7 @@ func (s *Server) ListMaps(w http.ResponseWriter, r *http.Request) {
 	}
 	out := make([]oapi.MapSummary, 0, len(list))
 	for _, m := range list {
-		out = append(out, mapSummary(m, seen))
+		out = append(out, mapSummary(m, s.games.Reg.Allowed(nil), seen))
 	}
 	writeJSON(w, http.StatusOK, out)
 }
@@ -160,7 +160,7 @@ func (s *Server) GetMap(w http.ResponseWriter, r *http.Request, slug string) {
 		fail(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, mapSummary(m, seen))
+	writeJSON(w, http.StatusOK, mapSummary(m, s.games.Reg.Allowed(nil), seen))
 }
 
 func (s *Server) GetPlaceShape(w http.ResponseWriter, r *http.Request, slug string) {
@@ -220,7 +220,7 @@ func (s *Server) CreateGame(w http.ResponseWriter, r *http.Request) {
 		fail(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusCreated, gameOut(g))
+	writeJSON(w, http.StatusCreated, gameOut(g, s.games.Reg.Allowed(g.Rules.Providers)))
 }
 
 func (s *Server) GetGame(w http.ResponseWriter, r *http.Request, id oapi.GameId) {
@@ -233,7 +233,7 @@ func (s *Server) GetGame(w http.ResponseWriter, r *http.Request, id oapi.GameId)
 		fail(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, gameOut(g))
+	writeJSON(w, http.StatusOK, gameOut(g, s.games.Reg.Allowed(g.Rules.Providers)))
 }
 
 func (s *Server) NextRound(w http.ResponseWriter, r *http.Request, id oapi.GameId) {

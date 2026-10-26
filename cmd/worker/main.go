@@ -32,6 +32,7 @@ func run() error {
 		return err
 	}
 	platform.SetupLogging(cfg)
+	defer platform.FlushErrors()
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 

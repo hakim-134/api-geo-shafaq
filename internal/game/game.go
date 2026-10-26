@@ -130,7 +130,7 @@ func (s *Service) Create(ctx context.Context, userID uuid.UUID, slug string, r *
 	if rs.Providers == nil {
 		rs.Providers = []string{}
 	}
-	if err := rs.Validate(s.Reg.Names()); err != nil {
+	if err := rs.Validate(s.Reg.Known()); err != nil {
 		return nil, ErrBadInput
 	}
 	if m.Count(s.Reg.Allowed(rs.Providers)) < rs.Rounds {

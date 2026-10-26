@@ -4,6 +4,6 @@ output: internal/httpapi/oapi/oapi.gen.go
 generate:
   std-http-server: true
   models: true
-  embedded-spec: true
+  embedded-spec: false # unused, and its gzip bytes differ between Go versions
 output-options:
   skip-prune: true

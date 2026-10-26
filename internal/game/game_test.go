@@ -63,7 +63,7 @@ func setup(t *testing.T) *fixture {
 	exec(`INSERT INTO map_sources (map_id, place_id) SELECT m.id, p.id FROM maps m, places p WHERE m.slug = 'city' AND p.slug = 'toshkent'`)
 
 	q := store.New(pool)
-	reg, err := provider.NewRegistry([]string{"yandex", "demo"}, provider.Yandex{}, provider.Demo{Secret: []byte("t")})
+	reg, err := provider.NewRegistry([]string{"yandex"}, []string{"demo"}, provider.Yandex{}, provider.Demo{Secret: []byte("t")})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -239,6 +239,29 @@ func TestOthersCannotTouchARunningGame(t *testing.T) {
 	}
 	if _, err := f.svc.Guess(ctx, f.other, g.ID, 1, nil); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("another player guessed: %v", err)
+	}
+}
+
+func TestPlayersNeverGetTestPanoramas(t *testing.T) {
+	f := setup(t)
+	ctx := context.Background()
+	r := testRules() // no providers named: the players' ones (yandex), never demo
+	r.Rounds = 10
+	g, err := f.svc.Create(ctx, f.user, "city", r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for n := 1; n <= r.Rounds; n++ {
+		rd, err := f.svc.NextRound(ctx, f.user, g.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if rd.View.Provider != "yandex" {
+			t.Fatalf("round %d is on %q", n, rd.View.Provider)
+		}
+		if _, err := f.svc.Guess(ctx, f.user, g.ID, n, nil); err != nil {
+			t.Fatal(err)
+		}
 	}
 }
 

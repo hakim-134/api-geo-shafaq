@@ -33,7 +33,6 @@ type Map struct {
 	BBox     geo.BBox // where the guess map opens
 	Cands    []Candidate
 	groups   map[int64][]int // group key → indices into Cands
-	Streets  int             // named streets, on a street map
 	Outline  string          // the place's outline SVG, for maps of one place
 }
 
@@ -44,15 +43,33 @@ type Candidate struct {
 	Group    int64
 }
 
-// Providers lists the providers with panoramas in this map.
-func (m *Map) Providers() []string {
-	seen := []string{}
+// Shown is what the menu tells players about a map. Only the given providers count, so test
+// panoramas (the demo twins of every point) never show up or double a number.
+type Shown struct {
+	Panoramas int
+	Groups    int // groups with a panorama
+	Streets   int // named streets with a panorama
+	Providers []string
+}
+
+func (m *Map) Shown(allowed map[string]bool) Shown {
+	out := Shown{Providers: []string{}}
+	groups, streets := map[int64]bool{}, map[int64]bool{}
 	for _, c := range m.Cands {
-		if !slices.Contains(seen, c.Provider) {
-			seen = append(seen, c.Provider)
+		if !allowed[c.Provider] {
+			continue
+		}
+		out.Panoramas++
+		groups[c.Group] = true
+		if c.StreetID != 0 {
+			streets[c.StreetID] = true
+		}
+		if !slices.Contains(out.Providers, c.Provider) {
+			out.Providers = append(out.Providers, c.Provider)
 		}
 	}
-	return seen
+	out.Groups, out.Streets = len(groups), len(streets)
+	return out
 }
 
 // Count is how many panoramas the given providers have here; nil = all.
@@ -68,9 +85,6 @@ func (m *Map) Count(allowed map[string]bool) int {
 	}
 	return n
 }
-
-// Groups is how many groups (streets, districts, regions) the map has.
-func (m *Map) Groups() int { return len(m.groups) }
 
 // Catalog serves maps from memory, reloading each a few minutes after it was read, so the
 // round picker never queries the whole library.
@@ -167,7 +181,6 @@ func (c *Catalog) load(ctx context.Context, slug string) (*Map, error) {
 		return nil, err
 	}
 	var pbox geo.BBox
-	streets := map[int64]bool{}
 	for _, r := range cands {
 		if _, ok := c.reg.Get(r.Provider); !ok {
 			continue // provider not enabled on this server
@@ -175,7 +188,6 @@ func (c *Catalog) load(ctx context.Context, slug string) (*Map, error) {
 		cand := Candidate{Pano: provider.Pano{ID: r.ID, Provider: r.Provider, Ref: r.Ref, Pos: geo.Point{Lat: r.Lat, Lon: r.Lon}, Heading: r.Heading}}
 		if r.StreetID != nil {
 			cand.StreetID = *r.StreetID
-			streets[cand.StreetID] = true
 		}
 		switch m.Pick.Group {
 		case "street":
@@ -189,7 +201,6 @@ func (c *Catalog) load(ctx context.Context, slug string) (*Map, error) {
 		m.Cands = append(m.Cands, cand)
 		pbox = pbox.Extend(cand.Pos)
 	}
-	m.Streets = len(streets)
 
 	ext, err := c.q.MapPlaceExtent(ctx, row.ID)
 	if err != nil {
