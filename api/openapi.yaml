@@ -19,6 +19,7 @@ tags:
   - name: accounts
   - name: maps
   - name: games
+  - name: rooms
 
 paths:
   /v1/health:
@@ -581,6 +582,272 @@ paths:
         "404": { $ref: "#/components/responses/Error" }
         "409": { $ref: "#/components/responses/Error" }
 
+  /v1/rooms:
+    post:
+      tags: [rooms]
+      operationId: createRoom
+      summary: Opens a live room on a map; the caller is its host.
+      description: |
+        Then every player's page opens `/v1/rooms/{code}/live` (a WebSocket), which joins the
+        room and brings its state after every change. The actions below answer with the
+        caller's state too.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateRoom" }
+      responses:
+        "201":
+          description: The new room, in its lobby
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RoomState" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "429": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+
+  /v1/rooms/{code}:
+    get:
+      tags: [rooms]
+      operationId: getRoom
+      summary: A room as the caller sees it (`joined` false before their page has joined it).
+      parameters:
+        - $ref: "#/components/parameters/RoomCode"
+      responses:
+        "200":
+          description: The room
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RoomState" }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /v1/rooms/{code}/live:
+    get:
+      tags: [rooms]
+      operationId: roomLive
+      summary: "The room, live: a WebSocket that joins it and gets its state after every change."
+      description: |
+        Needs the session cookie. Opening it joins the room (or comes back to it); closing it
+        keeps the seat, and a page reconnects with the same session. The server sends JSON
+        `RoomMessage`s: `state` after every change, `bye` before it closes the socket for
+        good (`kicked`, `left`, `closed`). The page sends nothing; an answer of the server
+        other than 101 is an `Error` (`no_room`, `room_full`, `kicked`, `no_session`).
+        A socket closed with code 1012 is a server restart: reconnect at once.
+      parameters:
+        - $ref: "#/components/parameters/RoomCode"
+      responses:
+        "101":
+          description: Switching to the WebSocket protocol
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "429": { $ref: "#/components/responses/Error" }
+
+  /v1/rooms/{code}/rules:
+    post:
+      tags: [rooms]
+      operationId: setRoomRules
+      summary: The host changes the map or the rules, between games (back to the lobby).
+      parameters:
+        - $ref: "#/components/parameters/RoomCode"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RoomRules" }
+      responses:
+        "200": { $ref: "#/components/responses/RoomState" }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+
+  /v1/rooms/{code}/start:
+    post:
+      tags: [rooms]
+      operationId: startRoomGame
+      summary: The host starts a game, from the lobby or after one (a rematch).
+      parameters:
+        - $ref: "#/components/parameters/RoomCode"
+      responses:
+        "200": { $ref: "#/components/responses/RoomState" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+
+  /v1/rooms/{code}/next:
+    post:
+      tags: [rooms]
+      operationId: nextRoomRound
+      summary: The host goes on from a round's result, to the next round or the game's table.
+      description: "`finish` ends the game now (an endless one ends this way)."
+      parameters:
+        - $ref: "#/components/parameters/RoomCode"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RoomNext" }
+      responses:
+        "200": { $ref: "#/components/responses/RoomState" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+
+  /v1/rooms/{code}/kick:
+    post:
+      tags: [rooms]
+      operationId: kickRoomPlayer
+      summary: The host sends a player away; they cannot come back to this room.
+      parameters:
+        - $ref: "#/components/parameters/RoomCode"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RoomTarget" }
+      responses:
+        "200": { $ref: "#/components/responses/RoomState" }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /v1/rooms/{code}/host:
+    post:
+      tags: [rooms]
+      operationId: makeRoomHost
+      summary: The host hands the room to another player.
+      parameters:
+        - $ref: "#/components/parameters/RoomCode"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RoomTarget" }
+      responses:
+        "200": { $ref: "#/components/responses/RoomState" }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /v1/rooms/{code}/leave:
+    post:
+      tags: [rooms]
+      operationId: leaveRoom
+      summary: The caller leaves the room. During a game their scores stay in its table.
+      parameters:
+        - $ref: "#/components/parameters/RoomCode"
+      responses:
+        "204":
+          description: Left
+        "404": { $ref: "#/components/responses/Error" }
+
+  /v1/rooms/{code}/rounds/{n}/shown:
+    post:
+      tags: [rooms]
+      operationId: roomRoundShown
+      summary: The caller's viewer opened the round's panorama. The first one starts the clock.
+      description: As for solo games, `pos` is what a Yandex viewer opened; the first one is where the round is scored.
+      parameters:
+        - $ref: "#/components/parameters/RoomCode"
+        - $ref: "#/components/parameters/RoundN"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RoundShown" }
+      responses:
+        "200": { $ref: "#/components/responses/RoomState" }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
+  /v1/rooms/{code}/rounds/{n}/fail:
+    post:
+      tags: [rooms]
+      operationId: roomRoundFailed
+      summary: The caller's viewer could not open the panorama; before anyone has, everyone gets another.
+      description: |
+        `swap` is the round's `swap` the page tried, so pages failing at once swap only once.
+        After someone opened it: `wrong_phase`, and this page guesses on the map alone.
+      parameters:
+        - $ref: "#/components/parameters/RoomCode"
+        - $ref: "#/components/parameters/RoundN"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RoomRoundFailed" }
+      responses:
+        "200": { $ref: "#/components/responses/RoomState" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+
+  /v1/rooms/{code}/rounds/{n}/hint:
+    post:
+      tags: [rooms]
+      operationId: roomHint
+      summary: Spends one of the caller's hints; it is the last of `round.hints`.
+      parameters:
+        - $ref: "#/components/parameters/RoomCode"
+        - $ref: "#/components/parameters/RoundN"
+      responses:
+        "200": { $ref: "#/components/responses/RoomState" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
+  /v1/rooms/{code}/rounds/{n}/pin:
+    post:
+      tags: [rooms]
+      operationId: roomPin
+      summary: The caller moved their pin without guessing yet; it counts if the round ends first.
+      parameters:
+        - $ref: "#/components/parameters/RoomCode"
+        - $ref: "#/components/parameters/RoundN"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/GuessRequest" }
+      responses:
+        "204":
+          description: Kept
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
+  /v1/rooms/{code}/rounds/{n}/guess:
+    post:
+      tags: [rooms]
+      operationId: roomGuess
+      summary: The caller's answer (or none). Sent twice, or after the round ended, it changes nothing.
+      parameters:
+        - $ref: "#/components/parameters/RoomCode"
+        - $ref: "#/components/parameters/RoundN"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/GuessRequest" }
+      responses:
+        "200": { $ref: "#/components/responses/RoomState" }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
   /v1/pano/demo/{ref}:
     get:
       tags: [games]
@@ -621,6 +888,11 @@ components:
       in: path
       required: true
       schema: { type: integer, minimum: 1 }
+    RoomCode:
+      name: code
+      in: path
+      required: true
+      schema: { type: string, example: K7MQ2 }
 
   responses:
     Error:
@@ -628,6 +900,11 @@ components:
       content:
         application/json:
           schema: { $ref: "#/components/schemas/Error" }
+    RoomState:
+      description: The room as the caller sees it
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/RoomState" }
 
   schemas:
     Error:
@@ -639,7 +916,8 @@ components:
           description: |
             no_session | not_found | bad_input | wrong_phase | round_running | game_over |
             no_panorama | daily_cap | too_far | rate_limited | banned | bad_name |
-            last_identity | bad_login | not_configured | internal.
+            last_identity | bad_login | not_configured | internal; for rooms no_room |
+            room_full | kicked | not_host | not_in_room | too_many_rooms.
             banned: the player is banned and cannot start games.
             daily_cap: the game's panorama providers reached today's budget (`DAILY_CAPS`);
             new games start again after midnight, Moscow time.
@@ -1010,6 +1288,171 @@ components:
         map: { type: string, description: The map's slug. }
         rules: { $ref: "#/components/schemas/Rules" }
 
+    CreateRoom:
+      type: object
+      required: [map]
+      properties:
+        map: { type: string, description: The map's slug. }
+        rules: { $ref: "#/components/schemas/Rules" }
+
+    RoomRules:
+      type: object
+      required: [map]
+      properties:
+        map: { type: string }
+        rules: { $ref: "#/components/schemas/Rules" }
+
+    RoomNext:
+      type: object
+      properties:
+        finish: { type: boolean, description: End the game now. }
+
+    RoomTarget:
+      type: object
+      required: [player]
+      properties:
+        player: { type: string, format: uuid }
+
+    RoomRoundFailed:
+      type: object
+      required: [reason, swap]
+      properties:
+        reason:
+          type: string
+          enum: [not_found, error]
+        swap: { type: integer, description: The round's `swap` the viewer tried. }
+
+    RoomPhase:
+      type: string
+      description: |
+        lobby: waiting for the host to start; playing: a round is on; result: a round's
+        result, the host goes on; final: the game's table, the host starts again.
+      enum: [lobby, playing, result, final]
+
+    RoomState:
+      type: object
+      required: [code, ver, phase, you, joined, host, map, rules, games, players, results, max, maxPlayers]
+      properties:
+        code: { type: string, example: K7MQ2 }
+        ver:
+          type: integer
+          format: int64
+          description: Goes up with every change; a page keeps the state with the highest.
+        phase: { $ref: "#/components/schemas/RoomPhase" }
+        you: { type: string, format: uuid }
+        joined: { type: boolean, description: The caller is a player of this room. }
+        blocked:
+          type: string
+          description: "Not joined, and cannot join: kicked | room_full."
+        host: { type: string, format: uuid }
+        map: { $ref: "#/components/schemas/MapSummary" }
+        rules: { $ref: "#/components/schemas/Rules" }
+        games: { type: integer, description: Games started in this room. }
+        gameId:
+          type: string
+          format: uuid
+          description: The room's current (or last) game, as `Game.room.id`.
+        yourGame:
+          type: string
+          format: uuid
+          description: The caller's own game of it (`/v1/games/{id}`), once a round of it is saved.
+        players:
+          type: array
+          items: { $ref: "#/components/schemas/RoomPlayer" }
+        round: { $ref: "#/components/schemas/RoomRound" }
+        results:
+          type: array
+          description: The finished rounds of the current game, oldest first.
+          items: { $ref: "#/components/schemas/RoomResult" }
+        max: { type: integer, description: The best possible total so far. }
+        maxPlayers: { type: integer }
+
+    RoomPlayer:
+      type: object
+      required: [id, name, avatar, guest, online, left, total, guessed]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        avatar: { type: string }
+        guest: { type: boolean }
+        online: { type: boolean, description: Has the room open now. }
+        left: { type: boolean, description: Left during this game; kept in its table. }
+        total: { type: integer }
+        guessed: { type: boolean, description: Answered in the current round. }
+
+    RoomRound:
+      type: object
+      required: [n, swap, view, shown, hints, hintsLeft, guessed, answered, players]
+      properties:
+        "n": { type: integer }
+        swap: { type: integer, description: Panoramas swapped so far because no viewer could open one. }
+        view: { $ref: "#/components/schemas/PanoView" }
+        shown: { type: boolean, description: Someone's viewer opened it; the clock runs. }
+        remainingMs: { type: integer }
+        hints:
+          type: array
+          description: The caller's hints in this round.
+          items: { $ref: "#/components/schemas/Hint" }
+        hintsLeft: { type: integer }
+        guessed: { type: boolean }
+        pin: { $ref: "#/components/schemas/LatLon" }
+        answered: { type: integer }
+        players: { type: integer }
+
+    RoomResult:
+      type: object
+      required: [n, actual, place, scores]
+      properties:
+        "n": { type: integer }
+        actual: { $ref: "#/components/schemas/LatLon" }
+        place: { $ref: "#/components/schemas/PlaceInfo" }
+        scores:
+          type: array
+          items: { $ref: "#/components/schemas/RoomScore" }
+
+    RoomScore:
+      type: object
+      required: [player, score, hintsUsed]
+      properties:
+        player: { type: string, format: uuid }
+        guess: { $ref: "#/components/schemas/LatLon" }
+        km: { type: number, format: double }
+        score: { type: integer }
+        hintsUsed: { type: integer }
+
+    RoomMessage:
+      description: What the room's WebSocket sends.
+      type: object
+      required: [t]
+      properties:
+        t:
+          type: string
+          enum: [state, bye]
+        state: { $ref: "#/components/schemas/RoomState" }
+        reason:
+          type: string
+          description: "bye: kicked | left | closed"
+
+    RoomTable:
+      description: Everyone's game of one room game, best first.
+      type: object
+      required: [id, code, players]
+      properties:
+        id: { type: string, format: uuid }
+        code: { type: string }
+        players:
+          type: array
+          items: { $ref: "#/components/schemas/RoomTableRow" }
+
+    RoomTableRow:
+      type: object
+      required: [player, game, total, rounds]
+      properties:
+        player: { $ref: "#/components/schemas/PublicUser" }
+        game: { type: string, format: uuid }
+        total: { type: integer }
+        rounds: { type: integer }
+
     GameStatus:
       type: string
       enum: [playing, finished, abandoned]
@@ -1034,6 +1477,8 @@ components:
           type: array
           description: Every round so far; the last one may still be running.
           items: { $ref: "#/components/schemas/Round" }
+        room:
+          $ref: "#/components/schemas/RoomTable"
 
     GamePage:
       type: object
@@ -1056,6 +1501,7 @@ components:
         total: { type: integer }
         max: { type: integer }
         rounds: { type: integer }
+        players: { type: integer, description: "A room game: how many played it." }
 
     MapRef:
       type: object

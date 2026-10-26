@@ -1,7 +1,9 @@
 package httpapi
 
 import (
+	"bufio"
 	"context"
+	"errors"
 	"log/slog"
 	"net"
 	"net/http"
@@ -82,6 +84,16 @@ func (w *statusWriter) WriteHeader(code int) {
 	w.ResponseWriter.WriteHeader(code)
 }
 
+// Hijack lets a room's WebSocket take the connection over.
+func (w *statusWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	h, ok := w.ResponseWriter.(http.Hijacker)
+	if !ok {
+		return nil, nil, errors.New("hijack not supported")
+	}
+	w.status = http.StatusSwitchingProtocols
+	return h.Hijack()
+}
+
 type routeKey struct{}
 
 // recordRoute sits right around the router and tells observe which route matched (the
@@ -115,7 +127,9 @@ func observe(next http.Handler) http.Handler {
 			}
 			took := time.Since(start)
 			metrics.HTTPRequests.WithLabelValues(route, strconv.Itoa(sw.status)).Inc()
-			metrics.HTTPDuration.WithLabelValues(route).Observe(took.Seconds())
+			if sw.status != http.StatusSwitchingProtocols { // a WebSocket's time is its whole life
+				metrics.HTTPDuration.WithLabelValues(route).Observe(took.Seconds())
+			}
 			level := slog.LevelDebug
 			if sw.status >= 500 {
 				level = slog.LevelError

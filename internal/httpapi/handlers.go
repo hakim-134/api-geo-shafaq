@@ -107,6 +107,9 @@ func (s *Server) ListMyGames(w http.ResponseWriter, r *http.Request, params oapi
 			Id: it.ID, Map: oapi.MapRef{Slug: it.MapSlug, Name: text(it.MapName)}, Status: oapi.GameStatus(it.Status),
 			StartedAt: it.StartedAt, FinishedAt: it.FinishedAt, Total: it.Total, Max: it.Rounds * 5000, Rounds: it.Rounds,
 		})
+		if it.Players > 0 {
+			page.Games[len(page.Games)-1].Players = &it.Players
+		}
 	}
 	if len(items) == limit {
 		next := encodeCursor(items[len(items)-1].StartedAt)
@@ -224,7 +227,11 @@ func (s *Server) gameOut(r *http.Request, g *game.Game, player oapi.PublicUser) 
 	if err != nil {
 		return oapi.Game{}, err
 	}
-	return gameOut(g, s.games.Reg, t, player), nil
+	out := gameOut(g, s.games.Reg, t, player)
+	if out.Room, err = s.roomTable(r.Context(), g); err != nil {
+		return oapi.Game{}, err
+	}
+	return out, nil
 }
 
 // ---------- games ----------

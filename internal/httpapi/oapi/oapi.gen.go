@@ -44,19 +44,19 @@ func (e AuthResultStatus) Valid() bool {
 
 // Defines values for GameStatus.
 const (
-	Abandoned GameStatus = "abandoned"
-	Finished  GameStatus = "finished"
-	Playing   GameStatus = "playing"
+	GameStatusAbandoned GameStatus = "abandoned"
+	GameStatusFinished  GameStatus = "finished"
+	GameStatusPlaying   GameStatus = "playing"
 )
 
 // Valid indicates whether the value is a known member of the GameStatus enum.
 func (e GameStatus) Valid() bool {
 	switch e {
-	case Abandoned:
+	case GameStatusAbandoned:
 		return true
-	case Finished:
+	case GameStatusFinished:
 		return true
-	case Playing:
+	case GameStatusPlaying:
 		return true
 	default:
 		return false
@@ -255,6 +255,66 @@ func (e ProgressUnit) Valid() bool {
 	}
 }
 
+// Defines values for RoomMessageT.
+const (
+	Bye   RoomMessageT = "bye"
+	State RoomMessageT = "state"
+)
+
+// Valid indicates whether the value is a known member of the RoomMessageT enum.
+func (e RoomMessageT) Valid() bool {
+	switch e {
+	case Bye:
+		return true
+	case State:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for RoomPhase.
+const (
+	RoomPhaseFinal   RoomPhase = "final"
+	RoomPhaseLobby   RoomPhase = "lobby"
+	RoomPhasePlaying RoomPhase = "playing"
+	RoomPhaseResult  RoomPhase = "result"
+)
+
+// Valid indicates whether the value is a known member of the RoomPhase enum.
+func (e RoomPhase) Valid() bool {
+	switch e {
+	case RoomPhaseFinal:
+		return true
+	case RoomPhaseLobby:
+		return true
+	case RoomPhasePlaying:
+		return true
+	case RoomPhaseResult:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for RoomRoundFailedReason.
+const (
+	RoomRoundFailedReasonError    RoomRoundFailedReason = "error"
+	RoomRoundFailedReasonNotFound RoomRoundFailedReason = "not_found"
+)
+
+// Valid indicates whether the value is a known member of the RoomRoundFailedReason enum.
+func (e RoomRoundFailedReason) Valid() bool {
+	switch e {
+	case RoomRoundFailedReasonError:
+		return true
+	case RoomRoundFailedReasonNotFound:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for RoundFailedReason.
 const (
 	RoundFailedReasonError    RoundFailedReason = "error"
@@ -335,11 +395,21 @@ type CreateGame struct {
 	Rules *Rules `json:"rules,omitempty"`
 }
 
+// CreateRoom defines model for CreateRoom.
+type CreateRoom struct {
+	// Map The map's slug.
+	Map string `json:"map"`
+
+	// Rules One set of rules for solo games, rooms and challenges.
+	Rules *Rules `json:"rules,omitempty"`
+}
+
 // Error defines model for Error.
 type Error struct {
 	// Code no_session | not_found | bad_input | wrong_phase | round_running | game_over |
 	// no_panorama | daily_cap | too_far | rate_limited | banned | bad_name |
-	// last_identity | bad_login | not_configured | internal.
+	// last_identity | bad_login | not_configured | internal; for rooms no_room |
+	// room_full | kicked | not_host | not_in_room | too_many_rooms.
 	// banned: the player is banned and cannot start games.
 	// daily_cap: the game's panorama providers reached today's budget (`DAILY_CAPS`);
 	// new games start again after midnight, Moscow time.
@@ -358,6 +428,9 @@ type Game struct {
 	Max       int                `json:"max"`
 	Player    PublicUser         `json:"player"`
 
+	// Room Everyone's game of one room game, best first.
+	Room *RoomTable `json:"room,omitempty"`
+
 	// Rounds Every round so far; the last one may still be running.
 	Rounds []Round `json:"rounds"`
 
@@ -374,10 +447,13 @@ type GameListItem struct {
 	Id         openapi_types.UUID `json:"id"`
 	Map        MapRef             `json:"map"`
 	Max        int                `json:"max"`
-	Rounds     int                `json:"rounds"`
-	StartedAt  time.Time          `json:"startedAt"`
-	Status     GameStatus         `json:"status"`
-	Total      int                `json:"total"`
+
+	// Players A room game: how many played it.
+	Players   *int       `json:"players,omitempty"`
+	Rounds    int        `json:"rounds"`
+	StartedAt time.Time  `json:"startedAt"`
+	Status    GameStatus `json:"status"`
+	Total     int        `json:"total"`
 }
 
 // GamePage defines model for GamePage.
@@ -724,6 +800,169 @@ type PublicUser struct {
 	Name     string             `json:"name"`
 }
 
+// RoomMessage What the room's WebSocket sends.
+type RoomMessage struct {
+	// Reason bye: kicked | left | closed
+	Reason *string      `json:"reason,omitempty"`
+	State  *RoomState   `json:"state,omitempty"`
+	T      RoomMessageT `json:"t"`
+}
+
+// RoomMessageT defines model for RoomMessage.T.
+type RoomMessageT string
+
+// RoomNext defines model for RoomNext.
+type RoomNext struct {
+	// Finish End the game now.
+	Finish *bool `json:"finish,omitempty"`
+}
+
+// RoomPhase lobby: waiting for the host to start; playing: a round is on; result: a round's
+// result, the host goes on; final: the game's table, the host starts again.
+type RoomPhase string
+
+// RoomPlayer defines model for RoomPlayer.
+type RoomPlayer struct {
+	Avatar string `json:"avatar"`
+
+	// Guessed Answered in the current round.
+	Guessed bool               `json:"guessed"`
+	Guest   bool               `json:"guest"`
+	Id      openapi_types.UUID `json:"id"`
+
+	// Left Left during this game; kept in its table.
+	Left bool   `json:"left"`
+	Name string `json:"name"`
+
+	// Online Has the room open now.
+	Online bool `json:"online"`
+	Total  int  `json:"total"`
+}
+
+// RoomResult defines model for RoomResult.
+type RoomResult struct {
+	Actual LatLon `json:"actual"`
+	N      int    `json:"n"`
+
+	// Place "You were here": what the round teaches.
+	Place  PlaceInfo   `json:"place"`
+	Scores []RoomScore `json:"scores"`
+}
+
+// RoomRound defines model for RoomRound.
+type RoomRound struct {
+	Answered int  `json:"answered"`
+	Guessed  bool `json:"guessed"`
+
+	// Hints The caller's hints in this round.
+	Hints       []Hint  `json:"hints"`
+	HintsLeft   int     `json:"hintsLeft"`
+	N           int     `json:"n"`
+	Pin         *LatLon `json:"pin,omitempty"`
+	Players     int     `json:"players"`
+	RemainingMs *int    `json:"remainingMs,omitempty"`
+
+	// Shown Someone's viewer opened it; the clock runs.
+	Shown bool `json:"shown"`
+
+	// Swap Panoramas swapped so far because no viewer could open one.
+	Swap int `json:"swap"`
+
+	// View What the browser's viewer needs for this round, and nothing more.
+	View PanoView `json:"view"`
+}
+
+// RoomRoundFailed defines model for RoomRoundFailed.
+type RoomRoundFailed struct {
+	Reason RoomRoundFailedReason `json:"reason"`
+
+	// Swap The round's `swap` the viewer tried.
+	Swap int `json:"swap"`
+}
+
+// RoomRoundFailedReason defines model for RoomRoundFailed.Reason.
+type RoomRoundFailedReason string
+
+// RoomRules defines model for RoomRules.
+type RoomRules struct {
+	Map string `json:"map"`
+
+	// Rules One set of rules for solo games, rooms and challenges.
+	Rules *Rules `json:"rules,omitempty"`
+}
+
+// RoomScore defines model for RoomScore.
+type RoomScore struct {
+	Guess     *LatLon            `json:"guess,omitempty"`
+	HintsUsed int                `json:"hintsUsed"`
+	Km        *float64           `json:"km,omitempty"`
+	Player    openapi_types.UUID `json:"player"`
+	Score     int                `json:"score"`
+}
+
+// RoomState defines model for RoomState.
+type RoomState struct {
+	// Blocked Not joined, and cannot join: kicked | room_full.
+	Blocked *string `json:"blocked,omitempty"`
+
+	// Code Example: K7MQ2
+	Code string `json:"code"`
+
+	// GameId The room's current (or last) game, as `Game.room.id`.
+	GameId *openapi_types.UUID `json:"gameId,omitempty"`
+
+	// Games Games started in this room.
+	Games int                `json:"games"`
+	Host  openapi_types.UUID `json:"host"`
+
+	// Joined The caller is a player of this room.
+	Joined bool       `json:"joined"`
+	Map    MapSummary `json:"map"`
+
+	// Max The best possible total so far.
+	Max        int `json:"max"`
+	MaxPlayers int `json:"maxPlayers"`
+
+	// Phase lobby: waiting for the host to start; playing: a round is on; result: a round's
+	// result, the host goes on; final: the game's table, the host starts again.
+	Phase   RoomPhase    `json:"phase"`
+	Players []RoomPlayer `json:"players"`
+
+	// Results The finished rounds of the current game, oldest first.
+	Results []RoomResult `json:"results"`
+	Round   *RoomRound   `json:"round,omitempty"`
+
+	// Rules One set of rules for solo games, rooms and challenges.
+	Rules Rules `json:"rules"`
+
+	// Ver Goes up with every change; a page keeps the state with the highest.
+	Ver int64              `json:"ver"`
+	You openapi_types.UUID `json:"you"`
+
+	// YourGame The caller's own game of it (`/v1/games/{id}`), once a round of it is saved.
+	YourGame *openapi_types.UUID `json:"yourGame,omitempty"`
+}
+
+// RoomTable Everyone's game of one room game, best first.
+type RoomTable struct {
+	Code    string             `json:"code"`
+	Id      openapi_types.UUID `json:"id"`
+	Players []RoomTableRow     `json:"players"`
+}
+
+// RoomTableRow defines model for RoomTableRow.
+type RoomTableRow struct {
+	Game   openapi_types.UUID `json:"game"`
+	Player PublicUser         `json:"player"`
+	Rounds int                `json:"rounds"`
+	Total  int                `json:"total"`
+}
+
+// RoomTarget defines model for RoomTarget.
+type RoomTarget struct {
+	Player openapi_types.UUID `json:"player"`
+}
+
 // Round defines model for Round.
 type Round struct {
 	// Deadline When the round ends; absent without a time limit or before it is shown.
@@ -862,6 +1101,9 @@ type User struct {
 // GameId defines model for GameId.
 type GameId = openapi_types.UUID
 
+// RoomCode Example: K7MQ2
+type RoomCode = string
+
 // RoundN defines model for RoundN.
 type RoundN = int
 
@@ -954,6 +1196,33 @@ type UpdatePrefsJSONRequestBody = Prefs
 // UpdateProfileJSONRequestBody defines body for UpdateProfile for application/json ContentType.
 type UpdateProfileJSONRequestBody = ProfileUpdate
 
+// CreateRoomJSONRequestBody defines body for CreateRoom for application/json ContentType.
+type CreateRoomJSONRequestBody = CreateRoom
+
+// MakeRoomHostJSONRequestBody defines body for MakeRoomHost for application/json ContentType.
+type MakeRoomHostJSONRequestBody = RoomTarget
+
+// KickRoomPlayerJSONRequestBody defines body for KickRoomPlayer for application/json ContentType.
+type KickRoomPlayerJSONRequestBody = RoomTarget
+
+// NextRoomRoundJSONRequestBody defines body for NextRoomRound for application/json ContentType.
+type NextRoomRoundJSONRequestBody = RoomNext
+
+// RoomRoundFailedJSONRequestBody defines body for RoomRoundFailed for application/json ContentType.
+type RoomRoundFailedJSONRequestBody = RoomRoundFailed
+
+// RoomGuessJSONRequestBody defines body for RoomGuess for application/json ContentType.
+type RoomGuessJSONRequestBody = GuessRequest
+
+// RoomPinJSONRequestBody defines body for RoomPin for application/json ContentType.
+type RoomPinJSONRequestBody = GuessRequest
+
+// RoomRoundShownJSONRequestBody defines body for RoomRoundShown for application/json ContentType.
+type RoomRoundShownJSONRequestBody = RoundShown
+
+// SetRoomRulesJSONRequestBody defines body for SetRoomRules for application/json ContentType.
+type SetRoomRulesJSONRequestBody = RoomRules
+
 // ReportUserJSONRequestBody defines body for ReportUser for application/json ContentType.
 type ReportUserJSONRequestBody ReportUserJSONBody
 
@@ -1043,6 +1312,48 @@ type ServerInterface interface {
 	// GetReady The database and Valkey answer.
 	// (GET /v1/ready)
 	GetReady(w http.ResponseWriter, r *http.Request)
+	// CreateRoom Opens a live room on a map; the caller is its host.
+	// (POST /v1/rooms)
+	CreateRoom(w http.ResponseWriter, r *http.Request)
+	// GetRoom A room as the caller sees it (`joined` false before their page has joined it).
+	// (GET /v1/rooms/{code})
+	GetRoom(w http.ResponseWriter, r *http.Request, code RoomCode)
+	// MakeRoomHost The host hands the room to another player.
+	// (POST /v1/rooms/{code}/host)
+	MakeRoomHost(w http.ResponseWriter, r *http.Request, code RoomCode)
+	// KickRoomPlayer The host sends a player away; they cannot come back to this room.
+	// (POST /v1/rooms/{code}/kick)
+	KickRoomPlayer(w http.ResponseWriter, r *http.Request, code RoomCode)
+	// LeaveRoom The caller leaves the room. During a game their scores stay in its table.
+	// (POST /v1/rooms/{code}/leave)
+	LeaveRoom(w http.ResponseWriter, r *http.Request, code RoomCode)
+	// RoomLive The room, live: a WebSocket that joins it and gets its state after every change.
+	// (GET /v1/rooms/{code}/live)
+	RoomLive(w http.ResponseWriter, r *http.Request, code RoomCode)
+	// NextRoomRound The host goes on from a round's result, to the next round or the game's table.
+	// (POST /v1/rooms/{code}/next)
+	NextRoomRound(w http.ResponseWriter, r *http.Request, code RoomCode)
+	// RoomRoundFailed The caller's viewer could not open the panorama; before anyone has, everyone gets another.
+	// (POST /v1/rooms/{code}/rounds/{n}/fail)
+	RoomRoundFailed(w http.ResponseWriter, r *http.Request, code RoomCode, n RoundN)
+	// RoomGuess The caller's answer (or none). Sent twice, or after the round ended, it changes nothing.
+	// (POST /v1/rooms/{code}/rounds/{n}/guess)
+	RoomGuess(w http.ResponseWriter, r *http.Request, code RoomCode, n RoundN)
+	// RoomHint Spends one of the caller's hints; it is the last of `round.hints`.
+	// (POST /v1/rooms/{code}/rounds/{n}/hint)
+	RoomHint(w http.ResponseWriter, r *http.Request, code RoomCode, n RoundN)
+	// RoomPin The caller moved their pin without guessing yet; it counts if the round ends first.
+	// (POST /v1/rooms/{code}/rounds/{n}/pin)
+	RoomPin(w http.ResponseWriter, r *http.Request, code RoomCode, n RoundN)
+	// RoomRoundShown The caller's viewer opened the round's panorama. The first one starts the clock.
+	// (POST /v1/rooms/{code}/rounds/{n}/shown)
+	RoomRoundShown(w http.ResponseWriter, r *http.Request, code RoomCode, n RoundN)
+	// SetRoomRules The host changes the map or the rules, between games (back to the lobby).
+	// (POST /v1/rooms/{code}/rules)
+	SetRoomRules(w http.ResponseWriter, r *http.Request, code RoomCode)
+	// StartRoomGame The host starts a game, from the lobby or after one (a rematch).
+	// (POST /v1/rooms/{code}/start)
+	StartRoomGame(w http.ResponseWriter, r *http.Request, code RoomCode)
 	// StartSession Returns the current player, creating a guest on the first visit.
 	// (POST /v1/session)
 	StartSession(w http.ResponseWriter, r *http.Request)
@@ -1655,6 +1966,403 @@ func (siw *ServerInterfaceWrapper) GetReady(w http.ResponseWriter, r *http.Reque
 	handler.ServeHTTP(w, r)
 }
 
+// CreateRoom operation middleware
+func (siw *ServerInterfaceWrapper) CreateRoom(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateRoom(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetRoom operation middleware
+func (siw *ServerInterfaceWrapper) GetRoom(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "code" -------------
+	var code RoomCode
+
+	err = runtime.BindStyledParameterWithOptions("simple", "code", r.PathValue("code"), &code, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "code", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetRoom(w, r, code)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// MakeRoomHost operation middleware
+func (siw *ServerInterfaceWrapper) MakeRoomHost(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "code" -------------
+	var code RoomCode
+
+	err = runtime.BindStyledParameterWithOptions("simple", "code", r.PathValue("code"), &code, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "code", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.MakeRoomHost(w, r, code)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// KickRoomPlayer operation middleware
+func (siw *ServerInterfaceWrapper) KickRoomPlayer(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "code" -------------
+	var code RoomCode
+
+	err = runtime.BindStyledParameterWithOptions("simple", "code", r.PathValue("code"), &code, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "code", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.KickRoomPlayer(w, r, code)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// LeaveRoom operation middleware
+func (siw *ServerInterfaceWrapper) LeaveRoom(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "code" -------------
+	var code RoomCode
+
+	err = runtime.BindStyledParameterWithOptions("simple", "code", r.PathValue("code"), &code, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "code", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.LeaveRoom(w, r, code)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RoomLive operation middleware
+func (siw *ServerInterfaceWrapper) RoomLive(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "code" -------------
+	var code RoomCode
+
+	err = runtime.BindStyledParameterWithOptions("simple", "code", r.PathValue("code"), &code, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "code", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RoomLive(w, r, code)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// NextRoomRound operation middleware
+func (siw *ServerInterfaceWrapper) NextRoomRound(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "code" -------------
+	var code RoomCode
+
+	err = runtime.BindStyledParameterWithOptions("simple", "code", r.PathValue("code"), &code, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "code", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.NextRoomRound(w, r, code)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RoomRoundFailed operation middleware
+func (siw *ServerInterfaceWrapper) RoomRoundFailed(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "code" -------------
+	var code RoomCode
+
+	err = runtime.BindStyledParameterWithOptions("simple", "code", r.PathValue("code"), &code, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "code", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "n" -------------
+	var n RoundN
+
+	err = runtime.BindStyledParameterWithOptions("simple", "n", r.PathValue("n"), &n, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "integer", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "n", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RoomRoundFailed(w, r, code, n)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RoomGuess operation middleware
+func (siw *ServerInterfaceWrapper) RoomGuess(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "code" -------------
+	var code RoomCode
+
+	err = runtime.BindStyledParameterWithOptions("simple", "code", r.PathValue("code"), &code, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "code", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "n" -------------
+	var n RoundN
+
+	err = runtime.BindStyledParameterWithOptions("simple", "n", r.PathValue("n"), &n, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "integer", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "n", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RoomGuess(w, r, code, n)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RoomHint operation middleware
+func (siw *ServerInterfaceWrapper) RoomHint(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "code" -------------
+	var code RoomCode
+
+	err = runtime.BindStyledParameterWithOptions("simple", "code", r.PathValue("code"), &code, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "code", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "n" -------------
+	var n RoundN
+
+	err = runtime.BindStyledParameterWithOptions("simple", "n", r.PathValue("n"), &n, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "integer", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "n", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RoomHint(w, r, code, n)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RoomPin operation middleware
+func (siw *ServerInterfaceWrapper) RoomPin(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "code" -------------
+	var code RoomCode
+
+	err = runtime.BindStyledParameterWithOptions("simple", "code", r.PathValue("code"), &code, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "code", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "n" -------------
+	var n RoundN
+
+	err = runtime.BindStyledParameterWithOptions("simple", "n", r.PathValue("n"), &n, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "integer", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "n", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RoomPin(w, r, code, n)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RoomRoundShown operation middleware
+func (siw *ServerInterfaceWrapper) RoomRoundShown(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "code" -------------
+	var code RoomCode
+
+	err = runtime.BindStyledParameterWithOptions("simple", "code", r.PathValue("code"), &code, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "code", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "n" -------------
+	var n RoundN
+
+	err = runtime.BindStyledParameterWithOptions("simple", "n", r.PathValue("n"), &n, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "integer", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "n", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RoomRoundShown(w, r, code, n)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// SetRoomRules operation middleware
+func (siw *ServerInterfaceWrapper) SetRoomRules(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "code" -------------
+	var code RoomCode
+
+	err = runtime.BindStyledParameterWithOptions("simple", "code", r.PathValue("code"), &code, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "code", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.SetRoomRules(w, r, code)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// StartRoomGame operation middleware
+func (siw *ServerInterfaceWrapper) StartRoomGame(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "code" -------------
+	var code RoomCode
+
+	err = runtime.BindStyledParameterWithOptions("simple", "code", r.PathValue("code"), &code, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "code", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.StartRoomGame(w, r, code)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // StartSession operation middleware
 func (siw *ServerInterfaceWrapper) StartSession(w http.ResponseWriter, r *http.Request) {
 
@@ -1871,6 +2579,20 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/games/{gameId}/rounds/{n}/fail", wrapper.RoundFailed)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/games/{gameId}/rounds/{n}/hint", wrapper.UseHint)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/games/{gameId}/rounds/{n}/guess", wrapper.Guess)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/rooms", wrapper.CreateRoom)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/rooms/{code}", wrapper.GetRoom)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/rooms/{code}/live", wrapper.RoomLive)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/rooms/{code}/rules", wrapper.SetRoomRules)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/rooms/{code}/start", wrapper.StartRoomGame)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/rooms/{code}/next", wrapper.NextRoomRound)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/rooms/{code}/kick", wrapper.KickRoomPlayer)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/rooms/{code}/host", wrapper.MakeRoomHost)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/rooms/{code}/leave", wrapper.LeaveRoom)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/rooms/{code}/rounds/{n}/shown", wrapper.RoomRoundShown)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/rooms/{code}/rounds/{n}/fail", wrapper.RoomRoundFailed)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/rooms/{code}/rounds/{n}/hint", wrapper.RoomHint)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/rooms/{code}/rounds/{n}/pin", wrapper.RoomPin)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/rooms/{code}/rounds/{n}/guess", wrapper.RoomGuess)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/pano/demo/{ref}", wrapper.GetDemoPanorama)
 
 	return m

@@ -63,7 +63,7 @@ func (q *Queries) AddToGame(ctx context.Context, arg AddToGameParams) error {
 const createGame = `-- name: CreateGame :one
 INSERT INTO games (user_id, map_id, mode, rules, size_km, seed)
 VALUES ($1, $2, 'solo', $3, $4, $5)
-RETURNING id, user_id, map_id, mode, rules, size_km, seed, status, total, hints_used, started_at, finished_at, played
+RETURNING id, user_id, map_id, mode, rules, size_km, seed, status, total, hints_used, started_at, finished_at, played, room_code, room_game
 `
 
 type CreateGameParams struct {
@@ -97,6 +97,8 @@ func (q *Queries) CreateGame(ctx context.Context, arg CreateGameParams) (Game, e
 		&i.StartedAt,
 		&i.FinishedAt,
 		&i.Played,
+		&i.RoomCode,
+		&i.RoomGame,
 	)
 	return i, err
 }
@@ -235,7 +237,7 @@ func (q *Queries) GameRounds(ctx context.Context, arg GameRoundsParams) ([]GameR
 }
 
 const getGame = `-- name: GetGame :one
-SELECT id, user_id, map_id, mode, rules, size_km, seed, status, total, hints_used, started_at, finished_at, played FROM games WHERE id = $1
+SELECT id, user_id, map_id, mode, rules, size_km, seed, status, total, hints_used, started_at, finished_at, played, room_code, room_game FROM games WHERE id = $1
 `
 
 func (q *Queries) GetGame(ctx context.Context, id uuid.UUID) (Game, error) {
@@ -255,13 +257,16 @@ func (q *Queries) GetGame(ctx context.Context, id uuid.UUID) (Game, error) {
 		&i.StartedAt,
 		&i.FinishedAt,
 		&i.Played,
+		&i.RoomCode,
+		&i.RoomGame,
 	)
 	return i, err
 }
 
 const listUserGames = `-- name: ListUserGames :many
 SELECT g.id, g.status, g.started_at, g.finished_at, g.total, g.rules, g.played,
-       m.slug AS map_slug, m.name_uz, m.name_ru, m.name_en
+       m.slug AS map_slug, m.name_uz, m.name_ru, m.name_en,
+       (SELECT count(*) FROM games x WHERE x.room_game = g.room_game)::int AS players
 FROM games g
 JOIN maps m ON m.id = g.map_id
 WHERE g.user_id = $1 AND g.status = 'finished'
@@ -288,6 +293,7 @@ type ListUserGamesRow struct {
 	NameUz     string
 	NameRu     string
 	NameEn     string
+	Players    int32
 }
 
 // Newest first; @before is the started_at of the last game on the previous page.
@@ -312,6 +318,7 @@ func (q *Queries) ListUserGames(ctx context.Context, arg ListUserGamesParams) ([
 			&i.NameUz,
 			&i.NameRu,
 			&i.NameEn,
+			&i.Players,
 		); err != nil {
 			return nil, err
 		}
@@ -324,7 +331,7 @@ func (q *Queries) ListUserGames(ctx context.Context, arg ListUserGamesParams) ([
 }
 
 const lockGame = `-- name: LockGame :one
-SELECT id, user_id, map_id, mode, rules, size_km, seed, status, total, hints_used, started_at, finished_at, played FROM games WHERE id = $1 FOR UPDATE
+SELECT id, user_id, map_id, mode, rules, size_km, seed, status, total, hints_used, started_at, finished_at, played, room_code, room_game FROM games WHERE id = $1 FOR UPDATE
 `
 
 func (q *Queries) LockGame(ctx context.Context, id uuid.UUID) (Game, error) {
@@ -344,6 +351,8 @@ func (q *Queries) LockGame(ctx context.Context, id uuid.UUID) (Game, error) {
 		&i.StartedAt,
 		&i.FinishedAt,
 		&i.Played,
+		&i.RoomCode,
+		&i.RoomGame,
 	)
 	return i, err
 }

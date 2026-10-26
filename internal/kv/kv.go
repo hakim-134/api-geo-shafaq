@@ -1,9 +1,9 @@
-// Package kv is Valkey (Redis-compatible): rate limits now, live-room snapshots and
-// presence later.
+// Package kv is Valkey (Redis-compatible): rate limits and the live rooms' snapshots.
 package kv
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"time"
@@ -46,3 +46,31 @@ func (l Limiter) Allow(ctx context.Context, key string, limit int, window time.D
 	}
 	return incr.Val() <= int64(limit)
 }
+
+// Rooms keeps the live rooms' snapshots (internal/room): one key per room, room:<CODE>,
+// expiring roomTTL after its last save.
+type Rooms struct {
+	C *redis.Client
+}
+
+const roomTTL = 2 * time.Hour
+
+func (s Rooms) key(code string) string { return "room:" + code }
+
+func (s Rooms) Save(ctx context.Context, code string, data []byte) error {
+	return s.C.Set(ctx, s.key(code), data, roomTTL).Err()
+}
+
+func (s Rooms) Load(ctx context.Context, code string) ([]byte, error) {
+	b, err := s.C.Get(ctx, s.key(code)).Bytes()
+	if errors.Is(err, redis.Nil) {
+		return nil, nil
+	}
+	return b, err
+}
+
+func (s Rooms) Delete(ctx context.Context, code string) error {
+	return s.C.Del(ctx, s.key(code)).Err()
+}
+
+func (s Rooms) TTL() time.Duration { return roomTTL }

@@ -48,6 +48,12 @@ var (
 	GuestsCreated = prometheus.NewCounter(prometheus.CounterOpts{
 		Name: "shafaq_guests_created_total", Help: "Guest players created.",
 	})
+	RoomsOpen = prometheus.NewGauge(prometheus.GaugeOpts{
+		Name: "shafaq_rooms_open", Help: "Live rooms in this process's memory.",
+	})
+	RoomConnections = prometheus.NewGauge(prometheus.GaugeOpts{
+		Name: "shafaq_room_connections", Help: "Open room WebSockets.",
+	})
 )
 
 func init() {
@@ -55,6 +61,7 @@ func init() {
 		collectors.NewGoCollector(),
 		collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}),
 		HTTPRequests, HTTPDuration, PanoramaViews, PanoramaViewsToday, PanoramaCap, YandexUsed, YandexLimit, GamesStarted, RoundsScored, GuestsCreated,
+		RoomsOpen, RoomConnections,
 	)
 }
 

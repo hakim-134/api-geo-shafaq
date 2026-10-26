@@ -5,6 +5,7 @@ go 1.26.0
 require (
 	github.com/getsentry/sentry-go v0.50.0
 	github.com/google/uuid v1.6.0
+	github.com/gorilla/websocket v1.5.3
 	github.com/jackc/pgx/v5 v5.11.0
 	github.com/oapi-codegen/runtime v1.7.0
 	github.com/paulmach/osm v0.9.0

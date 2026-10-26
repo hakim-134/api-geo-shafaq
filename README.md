@@ -39,8 +39,10 @@ container, migrations at start, then the worker and the API on :8131).
 |---|---|
 | `cmd/api` | the HTTP API |
 | `cmd/worker` | background jobs (River, in Postgres): Yandex usage warning, cleanup; the players' Telegram bot |
+| `cmd/roomsim` | plays a live room with many players against a running API (`go run ./cmd/roomsim`); redeploy meanwhile and the room should just finish |
 | `cmd/tools` | `migrate`, `places`, `v0`, `demo`, `maps`, `tag`, `stats`, `google`, `setup`; `reports`, `ban`, `unban` (moderation) |
 | `internal/game` | solo games: round picking, the clock, hints, scoring |
+| `internal/room` | live rooms: the room in memory, saved to Valkey after every change; each player's rounds saved as their own game |
 | `internal/maps` | maps: the official four, and every place's own map (`place-<slug>`, made the first time someone picks the place); the round picker |
 | `internal/provider` | the panorama providers behind one interface: `yandex`, `google`, `demo`. `PROVIDERS` are what players get (and what the menu counts); `TEST_PROVIDERS` play only in games that name them; `DAILY_CAPS` are each one's daily budget |
 | `internal/platform` | logging, and error tracking: Error lines also go to GlitchTip when `GLITCHTIP_DSN` is set |
@@ -107,6 +109,29 @@ game's panoramas cannot walk.
 
 A viewer that cannot open a panorama calls `.../fail`; the round gets another one, and a
 panorama that fails three times is retired.
+
+## Live rooms
+
+Friends on one map, the same panorama at the same time, with the same rules as solo games.
+`POST /v1/rooms` opens one (a 5-letter code, the caller hosts); every player's page keeps
+`/v1/rooms/{code}/live` open, a WebSocket that joins the room with the session (no per-room
+token) and brings its state after every change. Actions are plain requests that answer with
+the state too: `shown`, `fail`, `hint`, `pin`, `guess` per round; `start`, `next`, `rules`,
+`kick`, `host` for the host; `leave`.
+
+- **A round** ends when every present player answered, or at its deadline (the clock starts
+  when the first viewer opens the panorama; after the first answer the others get 45 s).
+  Whoever did not press Guess is scored by their last pin. A player whose page is gone (a
+  reload, a deploy) is waited for 20 s; a host gone that long hands the room on.
+- **Surviving a deploy:** the room lives in the API's memory and is saved to Valkey
+  (`room:<CODE>`) before anyone hears of a change. On SIGTERM the API closes the sockets with
+  1012; the pages reconnect, and the next process loads the room on its first request, the
+  clock going on from its deadline. One API process at a time.
+- **History:** each finished round is written to Postgres into every player's own game
+  (`games.mode = 'room'`, tied by `room_game`), so history, profiles, progress per place and
+  merging count room games too; `GET /v1/games/{id}` adds the room's table.
+- **Limits:** 12 players, 2 000 rooms per process, 4 pages per player and room, rate limits
+  per player; a room nobody has open for 15 minutes closes.
 
 ## Places
 

@@ -22,6 +22,7 @@ import (
 	"github.com/hakim-134/api-geo-shafaq/internal/places"
 	"github.com/hakim-134/api-geo-shafaq/internal/players"
 	"github.com/hakim-134/api-geo-shafaq/internal/provider"
+	"github.com/hakim-134/api-geo-shafaq/internal/room"
 	"github.com/hakim-134/api-geo-shafaq/internal/store"
 )
 
@@ -38,6 +39,11 @@ type Server struct {
 	version string
 	bot     *telegramBot
 	google  *auth.Google
+	rooms   *room.Hub
+	origins Origins
+
+	livePages pageCount
+	mapCache  mapCache
 
 	cookieName   string
 	cookieSecure bool
@@ -55,6 +61,7 @@ type Deps struct {
 	Catalog *maps.Catalog
 	Places  *places.Cache
 	Demo    provider.Demo
+	Rooms   *room.Hub
 }
 
 // New builds the API's handler: the generated routes, wrapped in the middleware.
@@ -66,8 +73,13 @@ func New(d Deps) http.Handler {
 		sessionTTL: d.Config.SessionTTL, trustProxy: d.Config.TrustProxy,
 		bot:    &telegramBot{token: d.Config.TelegramBotToken, client: &http.Client{Timeout: 10 * time.Second}},
 		google: &auth.Google{ClientID: d.Config.GoogleClientID},
+		rooms:  d.Rooms,
 	}
 	origins := Origins(d.Config.WebOrigins)
+	s.origins = origins
+	if s.rooms != nil {
+		s.rooms.Encode = s.encodeRoom
+	}
 	mux := http.NewServeMux()
 	oapi.HandlerWithOptions(s, oapi.StdHTTPServerOptions{
 		BaseRouter: mux,
@@ -96,6 +108,8 @@ func writeError(w http.ResponseWriter, status int, code string) {
 	writeJSON(w, status, oapi.Error{Code: code})
 }
 
+var errBanned = errors.New("banned")
+
 // fail maps the services' errors to HTTP answers with their stable codes.
 func fail(w http.ResponseWriter, r *http.Request, err error) {
 	status := http.StatusInternalServerError
@@ -115,6 +129,16 @@ func fail(w http.ResponseWriter, r *http.Request, err error) {
 		errors.Is(err, game.ErrNoHints), errors.Is(err, game.ErrTooManyFails):
 		status, code = http.StatusConflict, err.Error()
 	case errors.Is(err, game.ErrNoPanorama), errors.Is(err, game.ErrDailyCap):
+		status, code = http.StatusServiceUnavailable, err.Error()
+	case errors.Is(err, room.ErrNotFound):
+		status, code = http.StatusNotFound, err.Error()
+	case errors.Is(err, room.ErrFull):
+		status, code = http.StatusConflict, err.Error()
+	case errors.Is(err, room.ErrKicked), errors.Is(err, room.ErrNotHost), errors.Is(err, room.ErrNotInRoom):
+		status, code = http.StatusForbidden, err.Error()
+	case errors.Is(err, errBanned):
+		status, code = http.StatusForbidden, err.Error()
+	case errors.Is(err, room.ErrTooManyRooms):
 		status, code = http.StatusServiceUnavailable, err.Error()
 	case errors.Is(err, context.Canceled):
 		return // the player went away

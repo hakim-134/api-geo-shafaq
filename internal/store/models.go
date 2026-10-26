@@ -25,6 +25,8 @@ type Game struct {
 	StartedAt  time.Time
 	FinishedAt *time.Time
 	Played     int32
+	RoomCode   *string
+	RoomGame   *uuid.UUID
 }
 
 type Guess struct {

@@ -78,6 +78,8 @@ type Game struct {
 	Total      int
 	HintsUsed  int
 	Rounds     []Round
+	RoomCode   *string    // a room game: the room's code
+	RoomGame   *uuid.UUID // and the room game, shared by every player's row of it
 }
 
 // Max is the best possible total: of the rounds played so far, in an endless game.
@@ -132,37 +134,9 @@ type Result struct {
 
 // Create starts a solo game on a map. r nil = the map's default rules.
 func (s *Service) Create(ctx context.Context, userID uuid.UUID, slug string, r *rules.Rules) (*Game, error) {
-	m, err := s.Catalog.Get(ctx, slug)
-	if errors.Is(err, maps.ErrNotFound) {
-		return nil, ErrNotFound
-	}
+	m, rs, err := s.Prepare(ctx, slug, r)
 	if err != nil {
 		return nil, err
-	}
-	rs := m.Rules
-	if r != nil {
-		rs = *r
-	}
-	if rs.Providers == nil {
-		rs.Providers = []string{}
-	}
-	if err := rs.Validate(s.Reg.Known()); err != nil {
-		return nil, ErrBadInput
-	}
-	allowed := s.Reg.Allowed(rs.Providers)
-	if rs.Movement == rules.Move && !s.Reg.CanMove(allowed) {
-		rs.Movement = rules.NoMove // offered only where the panoramas can do it
-	}
-	need := max(rs.Rounds, 1) // an endless game needs one to start
-	if m.Count(allowed) < need {
-		return nil, ErrNoPanorama
-	}
-	open, err := s.uncapped(ctx, allowed)
-	if err != nil {
-		return nil, err
-	}
-	if m.Count(open) < need {
-		return nil, ErrDailyCap
 	}
 	rulesJSON, _ := json.Marshal(rs)
 	row, err := store.New(s.Pool).CreateGame(ctx, store.CreateGameParams{
@@ -176,6 +150,44 @@ func (s *Service) Create(ctx context.Context, userID uuid.UUID, slug string, r *
 		ID: row.ID, UserID: userID, Map: m, Rules: rs, Status: row.Status,
 		StartedAt: row.StartedAt, Rounds: []Round{},
 	}, nil
+}
+
+// Prepare checks a map and rules for a new game, solo or in a room: the map exists, the
+// rules are valid (r nil = the map's own) and its panoramas are enough for them today.
+func (s *Service) Prepare(ctx context.Context, slug string, r *rules.Rules) (*maps.Map, rules.Rules, error) {
+	m, err := s.Catalog.Get(ctx, slug)
+	if errors.Is(err, maps.ErrNotFound) {
+		return nil, rules.Rules{}, ErrNotFound
+	}
+	if err != nil {
+		return nil, rules.Rules{}, err
+	}
+	rs := m.Rules
+	if r != nil {
+		rs = *r
+	}
+	if rs.Providers == nil {
+		rs.Providers = []string{}
+	}
+	if err := rs.Validate(s.Reg.Known()); err != nil {
+		return nil, rs, ErrBadInput
+	}
+	allowed := s.Reg.Allowed(rs.Providers)
+	if rs.Movement == rules.Move && !s.Reg.CanMove(allowed) {
+		rs.Movement = rules.NoMove // offered only where the panoramas can do it
+	}
+	need := max(rs.Rounds, 1) // an endless game needs one to start
+	if m.Count(allowed) < need {
+		return nil, rs, ErrNoPanorama
+	}
+	open, err := s.uncapped(ctx, allowed)
+	if err != nil {
+		return nil, rs, err
+	}
+	if m.Count(open) < need {
+		return nil, rs, ErrDailyCap
+	}
+	return m, rs, nil
 }
 
 // Get returns a game with its rounds. A running game is only its player's; a finished one
@@ -204,6 +216,7 @@ func (s *Service) load(ctx context.Context, q *store.Queries, row store.Game, wi
 	g := &Game{
 		ID: row.ID, UserID: row.UserID, Map: m, Status: row.Status, StartedAt: row.StartedAt,
 		FinishedAt: row.FinishedAt, Total: int(row.Total), HintsUsed: int(row.HintsUsed),
+		RoomCode: row.RoomCode, RoomGame: row.RoomGame,
 	}
 	if err := json.Unmarshal(row.Rules, &g.Rules); err != nil {
 		return nil, fmt.Errorf("game %s rules: %w", row.ID, err)
@@ -392,8 +405,7 @@ func (s *Service) uncapped(ctx context.Context, allowed map[string]bool) (map[st
 }
 
 // pick chooses a panorama for round n that earlier rounds did not show. skip is a panorama
-// that just failed to open. Providers at today's cap give way to the game's others; when all
-// of them are at it, the game still finishes on them (only new games are turned away).
+// that just failed to open.
 func (s *Service) pick(ctx context.Context, q *store.Queries, g *Game, seed int64, n, salt int, skip *int64) (maps.Candidate, geo.Point, float64, error) {
 	rows, err := q.GameRounds(ctx, store.GameRoundsParams{GameID: g.ID, UserID: g.UserID})
 	if err != nil {
@@ -409,22 +421,62 @@ func (s *Service) pick(ctx context.Context, q *store.Queries, g *Game, seed int6
 	if skip != nil {
 		used.IDs[*skip] = true
 	}
-	allowed := s.Reg.Allowed(g.Rules.Providers)
+	p, err := s.PickRound(ctx, g.Map, g.Rules, used, seed, n, salt)
+	return p.Cand, p.Near, p.Heading, err
+}
+
+// Pick is a round's panorama: what to show, where the viewer searches, where it looks first.
+type Pick struct {
+	Cand    maps.Candidate
+	Near    geo.Point
+	Heading float64
+	View    provider.View
+}
+
+// PickRound chooses a panorama for round n of a game on m (solo or room) that used does not
+// hold. Providers at today's cap give way to the game's others; when all of them are at it,
+// the game still finishes on them (only new games are turned away).
+func (s *Service) PickRound(ctx context.Context, m *maps.Map, rs rules.Rules, used maps.Used, seed int64, n, salt int) (Pick, error) {
+	allowed := s.Reg.Allowed(rs.Providers)
 	open, err := s.uncapped(ctx, allowed)
 	if err != nil {
-		return maps.Candidate{}, geo.Point{}, 0, err
+		return Pick{}, err
 	}
 	r := rng(seed, n, salt)
-	c, ok := g.Map.PickRound(r, open, used)
+	c, ok := m.PickRound(r, open, used)
 	if !ok {
-		c, ok = g.Map.PickRound(r, allowed, used)
+		c, ok = m.PickRound(r, allowed, used)
 	}
 	if !ok {
-		return c, geo.Point{}, 0, ErrNoPanorama
+		return Pick{}, ErrNoPanorama
 	}
-	near := g.Map.Near(r, c)
+	near := m.Near(r, c)
 	heading := math.Floor(r.Float64() * 360)
-	return c, near, heading, nil
+	out := Pick{Cand: c, Near: near, Heading: heading}
+	if p, ok := s.Reg.Get(c.Provider); ok {
+		out.View = p.View(c.Pano, near, m.Pick.SnapKm, heading)
+	}
+	return out, nil
+}
+
+// SnapCheck is where a round is scored, given the panorama the viewer reports it opened:
+// for providers that search near a point it must be close to that point; others are scored
+// against the library position.
+func (s *Service) SnapCheck(provider string, near, library geo.Point, snapKm float64, pos *geo.Point) (geo.Point, error) {
+	p, ok := s.Reg.Get(provider)
+	if !ok {
+		return geo.Point{}, ErrNoPanorama
+	}
+	if !p.Capabilities().SearchNear {
+		return library, nil
+	}
+	if pos == nil || !pos.Valid() {
+		return geo.Point{}, ErrBadInput
+	}
+	if geo.DistanceKm(*pos, near) > snapKm+snapSlackKm {
+		return geo.Point{}, ErrTooFar
+	}
+	return *pos, nil
 }
 
 // Shown starts the round's clock. For providers that search near a point, pos is the
@@ -440,25 +492,16 @@ func (s *Service) Shown(ctx context.Context, userID, id uuid.UUID, n int, pos *g
 			out = rd
 			return nil
 		}
-		p, ok := s.Reg.Get(rd.View.Provider)
-		if !ok {
-			return ErrNoPanorama
-		}
 		rows, err := q.GameRounds(ctx, store.GameRoundsParams{GameID: id, UserID: userID})
 		if err != nil {
 			return err
 		}
 		row := rows[len(rows)-1]
-		actual := geo.Point{Lat: row.ActualLat, Lon: row.ActualLon} // the library position
-		if p.Capabilities().SearchNear {
-			if pos == nil || !pos.Valid() {
-				return ErrBadInput
-			}
-			near := geo.Point{Lat: row.NearLat, Lon: row.NearLon}
-			if geo.DistanceKm(*pos, near) > row.SnapKm+snapSlackKm {
-				return ErrTooFar
-			}
-			actual = *pos
+		library := geo.Point{Lat: row.ActualLat, Lon: row.ActualLon}
+		near := geo.Point{Lat: row.NearLat, Lon: row.NearLon}
+		actual, err := s.SnapCheck(rd.View.Provider, near, library, row.SnapKm, pos)
+		if err != nil {
+			return err
 		}
 		now := s.now()
 		start := now
@@ -567,21 +610,9 @@ func (s *Service) Hint(ctx context.Context, userID, id uuid.UUID, n int) (*Hint,
 		if err != nil {
 			return err
 		}
-		r := rng(seed, n, 1000+len(rd.Hints))
-		var h Hint
-		if g.Rules.Hints.Kind == rules.HintAuto {
-			info, err := places.Lookup(ctx, q, actual)
-			if err != nil {
-				return err
-			}
-			h = makeHint(g.Map.SizeKm, len(rd.Hints), info, actual, r)
-		} else {
-			at, err := q.PlacesAt(ctx, store.PlacesAtParams{Lat: actual.Lat, Lon: actual.Lon})
-			if err != nil {
-				return err
-			}
-			region, district := hintLevels(at)
-			h = nextHint(g.Rules.Hints.Kind, g.Map.SizeKm, len(rd.Hints), region, district, actual, r)
+		h, err := hintFor(ctx, q, g.Rules.Hints.Kind, g.Map.SizeKm, len(rd.Hints), actual, seed, n)
+		if err != nil {
+			return err
 		}
 		hints := append(rd.Hints, h)
 		hintsJSON, _ := json.Marshal(hints)
@@ -595,6 +626,29 @@ func (s *Service) Hint(ctx context.Context, userID, id uuid.UUID, n int) (*Hint,
 		return nil
 	})
 	return out, err
+}
+
+// HintFor is hint i of round n of a game on a map of size mapKm: the same for every player
+// of a room.
+func (s *Service) HintFor(ctx context.Context, kind rules.HintKind, mapKm float64, i int, actual geo.Point, seed int64, n int) (Hint, error) {
+	return hintFor(ctx, store.New(s.Pool), kind, mapKm, i, actual, seed, n)
+}
+
+func hintFor(ctx context.Context, q *store.Queries, kind rules.HintKind, mapKm float64, i int, actual geo.Point, seed int64, n int) (Hint, error) {
+	r := rng(seed, n, 1000+i)
+	if kind == rules.HintAuto {
+		info, err := places.Lookup(ctx, q, actual)
+		if err != nil {
+			return Hint{}, err
+		}
+		return makeHint(mapKm, i, info, actual, r), nil
+	}
+	at, err := q.PlacesAt(ctx, store.PlacesAtParams{Lat: actual.Lat, Lon: actual.Lon})
+	if err != nil {
+		return Hint{}, err
+	}
+	region, district := hintLevels(at)
+	return nextHint(kind, mapKm, i, region, district, actual, r), nil
 }
 
 // hintLevel is a place a hint can name.
@@ -773,6 +827,7 @@ type ListItem struct {
 	FinishedAt *time.Time
 	Total      int
 	Rounds     int
+	Players    int // a room game: how many played it
 }
 
 func (s *Service) History(ctx context.Context, userID uuid.UUID, before *time.Time, limit int) ([]ListItem, error) {
@@ -785,6 +840,7 @@ func (s *Service) History(ctx context.Context, userID uuid.UUID, before *time.Ti
 		out = append(out, ListItem{
 			ID: r.ID, MapSlug: r.MapSlug, MapName: places.NewText(r.NameUz, r.NameRu, r.NameEn),
 			Status: r.Status, StartedAt: r.StartedAt, FinishedAt: r.FinishedAt, Total: int(r.Total), Rounds: int(r.Played),
+			Players: int(r.Players),
 		})
 	}
 	return out, nil

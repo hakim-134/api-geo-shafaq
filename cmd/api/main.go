@@ -25,6 +25,7 @@ import (
 	"github.com/hakim-134/api-geo-shafaq/internal/platform"
 	"github.com/hakim-134/api-geo-shafaq/internal/players"
 	"github.com/hakim-134/api-geo-shafaq/internal/provider"
+	"github.com/hakim-134/api-geo-shafaq/internal/room"
 	"github.com/hakim-134/api-geo-shafaq/internal/store"
 )
 
@@ -68,21 +69,25 @@ func run() error {
 	q := store.New(pool)
 	tree := &places.Cache{Q: q, Providers: reg.Names()}
 	catalog := maps.NewCatalog(q, reg, tree)
+	games := &game.Service{
+		Pool: pool, Catalog: catalog, Reg: reg,
+		Usage: provider.Usage{Q: q, YandexLimit: cfg.YandexDailyLimit, Caps: cfg.DailyCaps},
+	}
+	rooms := &room.Hub{Games: games, Pool: pool, Store: kv.Rooms{C: valkey}}
 	handler := httpapi.New(httpapi.Deps{
 		Config:  cfg,
 		DB:      pool,
 		Valkey:  valkey,
 		Players: &players.Service{Pool: pool, Q: q, TTL: cfg.SessionTTL},
-		Games: &game.Service{
-			Pool: pool, Catalog: catalog, Reg: reg,
-			Usage: provider.Usage{Q: q, YandexLimit: cfg.YandexDailyLimit, Caps: cfg.DailyCaps},
-		},
+		Games:   games,
 		Catalog: catalog,
 		Places:  tree,
 		Demo:    demo,
+		Rooms:   rooms,
 	})
 
 	go metrics.Serve(ctx, cfg.MetricsAddr)
+	go rooms.Run(ctx)
 
 	srv := &http.Server{
 		Addr:              cfg.Addr,
@@ -105,10 +110,11 @@ func run() error {
 		}
 	case <-ctx.Done():
 	}
-	// Graceful: finish the requests in flight (a guess being scored) before exiting, so a
-	// deploy does not lose answers.
+	// Graceful: the rooms are saved and their pages told to reconnect (to the next process),
+	// then the requests in flight finish (a guess being scored), so a deploy loses nothing.
 	slog.Info("shutting down")
 	shutdown, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
+	rooms.Shutdown(shutdown)
 	return srv.Shutdown(shutdown)
 }
