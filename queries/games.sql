@@ -27,7 +27,8 @@ UPDATE games SET status = 'abandoned'
 WHERE status = 'playing' AND started_at < now() - make_interval(hours => @older_than_hours::int);
 
 -- name: ListUserGames :many
--- Newest first; @before is the started_at of the last game on the previous page.
+-- Newest first; @before is the started_at of the last game on the previous page, or @off
+-- skips that many (numbered pages).
 SELECT g.id, g.status, g.started_at, g.finished_at, g.total, g.rules, g.played,
        m.slug AS map_slug, m.name_uz, m.name_ru, m.name_en,
        (SELECT count(*) FROM games x WHERE x.room_game = g.room_game)::int AS players
@@ -36,7 +37,10 @@ JOIN maps m ON m.id = g.map_id
 WHERE g.user_id = @user_id AND g.status = 'finished'
   AND (sqlc.narg('before')::timestamptz IS NULL OR g.started_at < sqlc.narg('before'))
 ORDER BY g.started_at DESC
-LIMIT @lim;
+LIMIT @lim OFFSET @off;
+
+-- name: CountUserGames :one
+SELECT count(*)::int FROM games WHERE user_id = @user_id AND status = 'finished';
 
 -- name: CreateRound :exec
 INSERT INTO rounds (game_id, n, panorama_id, provider, near, snap_km, heading, created_at)

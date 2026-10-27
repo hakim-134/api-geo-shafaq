@@ -60,6 +60,17 @@ func (q *Queries) AddToGame(ctx context.Context, arg AddToGameParams) error {
 	return err
 }
 
+const countUserGames = `-- name: CountUserGames :one
+SELECT count(*)::int FROM games WHERE user_id = $1 AND status = 'finished'
+`
+
+func (q *Queries) CountUserGames(ctx context.Context, userID uuid.UUID) (int32, error) {
+	row := q.db.QueryRow(ctx, countUserGames, userID)
+	var column_1 int32
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const createGame = `-- name: CreateGame :one
 INSERT INTO games (user_id, map_id, mode, rules, size_km, seed)
 VALUES ($1, $2, 'solo', $3, $4, $5)
@@ -272,12 +283,13 @@ JOIN maps m ON m.id = g.map_id
 WHERE g.user_id = $1 AND g.status = 'finished'
   AND ($2::timestamptz IS NULL OR g.started_at < $2)
 ORDER BY g.started_at DESC
-LIMIT $3
+LIMIT $4 OFFSET $3
 `
 
 type ListUserGamesParams struct {
 	UserID uuid.UUID
 	Before *time.Time
+	Off    int32
 	Lim    int32
 }
 
@@ -296,9 +308,15 @@ type ListUserGamesRow struct {
 	Players    int32
 }
 
-// Newest first; @before is the started_at of the last game on the previous page.
+// Newest first; @before is the started_at of the last game on the previous page, or @off
+// skips that many (numbered pages).
 func (q *Queries) ListUserGames(ctx context.Context, arg ListUserGamesParams) ([]ListUserGamesRow, error) {
-	rows, err := q.db.Query(ctx, listUserGames, arg.UserID, arg.Before, arg.Lim)
+	rows, err := q.db.Query(ctx, listUserGames,
+		arg.UserID,
+		arg.Before,
+		arg.Off,
+		arg.Lim,
+	)
 	if err != nil {
 		return nil, err
 	}

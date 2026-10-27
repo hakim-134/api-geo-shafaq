@@ -460,6 +460,9 @@ type GameListItem struct {
 type GamePage struct {
 	Games []GameListItem `json:"games"`
 	Next  *string        `json:"next,omitempty"`
+
+	// Total All the player's finished games.
+	Total *int `json:"total,omitempty"`
 }
 
 // GameStatus defines model for GameStatus.
@@ -626,6 +629,32 @@ type Metro struct {
 
 // Movement move = walk freely; nomove = look around only; nmpz = no move, no pan, no zoom.
 type Movement string
+
+// MyStreet defines model for MyStreet.
+type MyStreet struct {
+	// BestKm The closest guess; none when no pin was placed.
+	BestKm *float64 `json:"bestKm,omitempty"`
+
+	// Learned Guessed within 500 m at least once.
+	Learned bool `json:"learned"`
+
+	// Name A name in the three languages. `ru` and `en` fall back to `uz` (street signs are in Uzbek Latin).
+	Name Text `json:"name"`
+
+	// Place A name in the three languages. `ru` and `en` fall back to `uz` (street signs are in Uzbek Latin).
+	Place *Text `json:"place,omitempty"`
+
+	// Rounds Rounds played on this street.
+	Rounds int `json:"rounds"`
+}
+
+// MyStreets defines model for MyStreets.
+type MyStreets struct {
+	Streets []MyStreet `json:"streets"`
+
+	// Total Streets in the game.
+	Total int `json:"total"`
+}
 
 // PanoView What the browser's viewer needs for this round, and nothing more.
 type PanoView struct {
@@ -1144,6 +1173,9 @@ type ListMyGamesParams struct {
 	// Before Cursor; the `next` value of the previous page.
 	Before *string `form:"before,omitempty" json:"before,omitempty"`
 	Limit  *int    `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// Page A numbered page (1 is the newest), instead of the cursor.
+	Page *int `form:"page,omitempty" json:"page,omitempty"`
 }
 
 // UnlinkIdentityJSONBody defines parameters for UnlinkIdentity.
@@ -1300,6 +1332,9 @@ type ServerInterface interface {
 	// UpdateProfile Changes the player's name or avatar.
 	// (POST /v1/me/profile)
 	UpdateProfile(w http.ResponseWriter, r *http.Request)
+	// ListMyStreets The Tashkent streets the player has been on, learned ones marked, closest guess first.
+	// (GET /v1/me/streets)
+	ListMyStreets(w http.ResponseWriter, r *http.Request)
 	// GetDemoPanorama The drawn test panorama of the `demo` provider (a JPEG).
 	// (GET /v1/pano/demo/{ref})
 	GetDemoPanorama(w http.ResponseWriter, r *http.Request, ref string)
@@ -1807,6 +1842,19 @@ func (siw *ServerInterfaceWrapper) ListMyGames(w http.ResponseWriter, r *http.Re
 		return
 	}
 
+	// ------------- Optional query parameter "page" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "page", r.URL.Query(), &params.Page, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "page"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "page", Err: err})
+		}
+		return
+	}
+
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.ListMyGames(w, r, params)
 	}))
@@ -1865,6 +1913,20 @@ func (siw *ServerInterfaceWrapper) UpdateProfile(w http.ResponseWriter, r *http.
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.UpdateProfile(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListMyStreets operation middleware
+func (siw *ServerInterfaceWrapper) ListMyStreets(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListMyStreets(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -2554,6 +2616,7 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/session", wrapper.StartSession)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/me", wrapper.GetMe)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/me/games", wrapper.ListMyGames)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/me/streets", wrapper.ListMyStreets)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/config", wrapper.GetConfig)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/auth/telegram/start", wrapper.StartTelegramLogin)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/auth/telegram/check", wrapper.CheckTelegramLogin)

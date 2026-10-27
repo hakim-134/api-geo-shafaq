@@ -91,12 +91,29 @@ paths:
         - name: limit
           in: query
           schema: { type: integer, minimum: 1, maximum: 50, default: 20 }
+        - name: page
+          in: query
+          description: A numbered page (1 is the newest), instead of the cursor.
+          schema: { type: integer, minimum: 1 }
       responses:
         "200":
           description: A page of games
           content:
             application/json:
               schema: { $ref: "#/components/schemas/GamePage" }
+        "401": { $ref: "#/components/responses/Error" }
+
+  /v1/me/streets:
+    get:
+      tags: [accounts]
+      operationId: listMyStreets
+      summary: The Tashkent streets the player has been on, learned ones marked, closest guess first.
+      responses:
+        "200":
+          description: The streets
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MyStreets" }
         "401": { $ref: "#/components/responses/Error" }
 
   /v1/config:
@@ -1072,6 +1089,25 @@ components:
         learned: { type: integer, description: Streets guessed within 500 m at least once. }
         total: { type: integer, description: Streets in the game. }
 
+    MyStreets:
+      type: object
+      required: [streets, total]
+      properties:
+        streets:
+          type: array
+          items: { $ref: "#/components/schemas/MyStreet" }
+        total: { type: integer, description: Streets in the game. }
+
+    MyStreet:
+      type: object
+      required: [name, rounds, learned]
+      properties:
+        name: { $ref: "#/components/schemas/Text" }
+        place: { $ref: "#/components/schemas/Text" }
+        rounds: { type: integer, description: Rounds played on this street. }
+        bestKm: { type: number, format: double, description: The closest guess; none when no pin was placed. }
+        learned: { type: boolean, description: Guessed within 500 m at least once. }
+
     MapBest:
       type: object
       required: [map, games, best, rounds, gameId]
@@ -1488,6 +1524,7 @@ components:
           type: array
           items: { $ref: "#/components/schemas/GameListItem" }
         next: { type: string }
+        total: { type: integer, description: All the player's finished games. }
 
     GameListItem:
       type: object

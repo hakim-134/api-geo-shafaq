@@ -298,6 +298,38 @@ func (s *Server) GetMyProfile(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, p)
 }
 
+func (s *Server) ListMyStreets(w http.ResponseWriter, r *http.Request) {
+	u := s.player(w, r)
+	if u == nil {
+		return
+	}
+	rows, err := s.q.MyStreets(r.Context(), u.ID)
+	if err != nil {
+		fail(w, r, err)
+		return
+	}
+	total, err := s.streetsTotal(r.Context())
+	if err != nil {
+		fail(w, r, err)
+		return
+	}
+	out := oapi.MyStreets{Streets: make([]oapi.MyStreet, len(rows)), Total: total}
+	for i, row := range rows {
+		place := text(places.NewText(row.PlaceUz, row.PlaceRu, row.PlaceEn))
+		out.Streets[i] = oapi.MyStreet{
+			Name:    text(places.NewText(row.NameUz, row.NameRu, "")),
+			Place:   &place,
+			Rounds:  int(row.Rounds),
+			Learned: row.BestKm >= 0 && row.BestKm <= places.LearnedKm,
+		}
+		if row.BestKm >= 0 {
+			km := row.BestKm
+			out.Streets[i].BestKm = &km
+		}
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
 // ---------- other players ----------
 
 func (s *Server) GetProfile(w http.ResponseWriter, r *http.Request, id oapi.UserId) {
@@ -401,7 +433,7 @@ func (s *Server) profileOut(ctx context.Context, u store.User) (oapi.Profile, er
 	if err != nil {
 		return oapi.Profile{}, err
 	}
-	recent, err := s.games.History(ctx, u.ID, nil, 6)
+	recent, err := s.games.History(ctx, u.ID, nil, 0, 6)
 	if err != nil {
 		return oapi.Profile{}, err
 	}

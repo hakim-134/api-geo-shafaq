@@ -148,6 +148,22 @@ JOIN rounds r ON r.game_id = g.game_id AND r.n = g.n
 JOIN panoramas p ON p.id = r.panorama_id
 WHERE g.user_id = @user_id AND g.guessed_at IS NOT NULL AND p.street_id IS NOT NULL;
 
+-- name: MyStreets :many
+-- Every street the player has been on: its district or city, how many rounds, and the closest
+-- guess (-1 when every round there went without a pin). Closest first.
+SELECT s.id, s.name_uz, s.name_ru,
+       pl.name_uz AS place_uz, pl.name_ru AS place_ru, pl.name_en AS place_en,
+       count(*)::int AS rounds,
+       coalesce(min(g.km), -1)::float8 AS best_km
+FROM guesses g
+JOIN rounds r ON r.game_id = g.game_id AND r.n = g.n
+JOIN panoramas p ON p.id = r.panorama_id
+JOIN streets s ON s.id = p.street_id
+JOIN places pl ON pl.id = s.place_id
+WHERE g.user_id = @user_id AND g.guessed_at IS NOT NULL
+GROUP BY s.id, pl.id
+ORDER BY min(g.km) NULLS LAST, s.name_uz;
+
 -- name: MapBests :many
 -- The player's best game on each map (best per round, so 3-, 10- and endless games compare).
 SELECT DISTINCT ON (m.id) m.slug, m.name_uz, m.name_ru, m.name_en,

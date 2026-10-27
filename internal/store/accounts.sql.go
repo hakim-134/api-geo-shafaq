@@ -409,6 +409,63 @@ func (q *Queries) MergeSessions(ctx context.Context, arg MergeSessionsParams) er
 	return err
 }
 
+const myStreets = `-- name: MyStreets :many
+SELECT s.id, s.name_uz, s.name_ru,
+       pl.name_uz AS place_uz, pl.name_ru AS place_ru, pl.name_en AS place_en,
+       count(*)::int AS rounds,
+       coalesce(min(g.km), -1)::float8 AS best_km
+FROM guesses g
+JOIN rounds r ON r.game_id = g.game_id AND r.n = g.n
+JOIN panoramas p ON p.id = r.panorama_id
+JOIN streets s ON s.id = p.street_id
+JOIN places pl ON pl.id = s.place_id
+WHERE g.user_id = $1 AND g.guessed_at IS NOT NULL
+GROUP BY s.id, pl.id
+ORDER BY min(g.km) NULLS LAST, s.name_uz
+`
+
+type MyStreetsRow struct {
+	ID      int64
+	NameUz  string
+	NameRu  string
+	PlaceUz string
+	PlaceRu string
+	PlaceEn string
+	Rounds  int32
+	BestKm  float64
+}
+
+// Every street the player has been on: its district or city, how many rounds, and the closest
+// guess (-1 when every round there went without a pin). Closest first.
+func (q *Queries) MyStreets(ctx context.Context, userID uuid.UUID) ([]MyStreetsRow, error) {
+	rows, err := q.db.Query(ctx, myStreets, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []MyStreetsRow{}
+	for rows.Next() {
+		var i MyStreetsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.NameUz,
+			&i.NameRu,
+			&i.PlaceUz,
+			&i.PlaceRu,
+			&i.PlaceEn,
+			&i.Rounds,
+			&i.BestKm,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const openReports = `-- name: OpenReports :many
 SELECT r.user_id, r.reason, max(r.name)::text AS name, count(*)::int AS reporters,
        max(r.created_at)::timestamptz AS last_at, u.name AS current_name, u.banned_at

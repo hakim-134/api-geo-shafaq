@@ -96,12 +96,22 @@ func (s *Server) ListMyGames(w http.ResponseWriter, r *http.Request, params oapi
 		}
 		before = &t
 	}
-	items, err := s.games.History(r.Context(), u.ID, before, limit)
+	offset := 0
+	if params.Page != nil && *params.Page > 1 {
+		offset = (*params.Page - 1) * limit
+	}
+	items, err := s.games.History(r.Context(), u.ID, before, offset, limit)
 	if err != nil {
 		fail(w, r, err)
 		return
 	}
-	page := oapi.GamePage{Games: make([]oapi.GameListItem, 0, len(items))}
+	total, err := s.q.CountUserGames(r.Context(), u.ID)
+	if err != nil {
+		fail(w, r, err)
+		return
+	}
+	n := int(total)
+	page := oapi.GamePage{Games: make([]oapi.GameListItem, 0, len(items)), Total: &n}
 	for _, it := range items {
 		page.Games = append(page.Games, oapi.GameListItem{
 			Id: it.ID, Map: oapi.MapRef{Slug: it.MapSlug, Name: text(it.MapName)}, Status: oapi.GameStatus(it.Status),

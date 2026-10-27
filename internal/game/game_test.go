@@ -391,9 +391,16 @@ func TestEndlessGameEndsWhenThePlayerSays(t *testing.T) {
 	if done.Status != "finished" || done.Max() != 4*5000 {
 		t.Fatalf("status %s, max %d", done.Status, done.Max())
 	}
-	items, _ := f.svc.History(ctx, f.user, nil, 5)
+	items, _ := f.svc.History(ctx, f.user, nil, 0, 5)
 	if len(items) != 1 || items[0].Rounds != 4 {
 		t.Fatalf("history: %+v", items)
+	}
+	// numbered pages: the second page of one game is empty, and the count says one
+	if items, _ := f.svc.History(ctx, f.user, nil, 5, 5); len(items) != 0 {
+		t.Fatalf("page 2: %+v", items)
+	}
+	if n, err := store.New(f.pool).CountUserGames(ctx, f.user); err != nil || n != 1 {
+		t.Fatalf("count %d, %v", n, err)
 	}
 
 	// a game finished before its first guess is dropped, not kept as a 0
@@ -453,5 +460,53 @@ func TestPlaceMapAndMovement(t *testing.T) {
 	}
 	if g.Rules.Movement != rules.NoMove {
 		t.Fatalf("movement %s", g.Rules.Movement)
+	}
+}
+
+func TestMyStreets(t *testing.T) {
+	f := setup(t)
+	ctx := context.Background()
+	// every panorama in the west district is on one street, the rest on another
+	if _, err := f.pool.Exec(ctx, `INSERT INTO streets (place_id, name_uz) SELECT id, 'G‘arb ko‘chasi' FROM places WHERE slug = 'west'`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.pool.Exec(ctx, `INSERT INTO streets (place_id, name_uz) SELECT id, 'Sharq ko‘chasi' FROM places WHERE slug = 'east'`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.pool.Exec(ctx, `UPDATE panoramas p SET street_id = s.id FROM streets s JOIN places pl ON pl.id = s.place_id
+		WHERE ST_Contains(pl.geom, p.pos)`); err != nil {
+		t.Fatal(err)
+	}
+	g, err := f.svc.Create(ctx, f.user, "city", testRules("demo"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	playRound(t, f, g.ID, 1)
+	playRound(t, f, g.ID, 2)
+
+	q := store.New(f.pool)
+	rows, err := q.MyStreets(ctx, f.user)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rounds := 0
+	for _, r := range rows {
+		rounds += int(r.Rounds)
+		if r.BestKm < 0 || r.PlaceUz == "" {
+			t.Fatalf("street %q: best %v km, place %q", r.NameUz, r.BestKm, r.PlaceUz)
+		}
+	}
+	if len(rows) == 0 || rounds != 2 {
+		t.Fatalf("got %d streets over %d rounds, want the 2 rounds played", len(rows), rounds)
+	}
+	sp, err := q.StreetProgress(ctx, store.StreetProgressParams{UserID: f.user, LearnedKm: places.LearnedKm})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if int(sp.Seen) != len(rows) {
+		t.Fatalf("progress says %d streets seen, the list has %d", sp.Seen, len(rows))
+	}
+	if other, _ := q.MyStreets(ctx, f.other); len(other) != 0 {
+		t.Fatalf("another player sees %d streets", len(other))
 	}
 }

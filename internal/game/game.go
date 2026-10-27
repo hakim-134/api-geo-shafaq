@@ -830,8 +830,8 @@ type ListItem struct {
 	Players    int // a room game: how many played it
 }
 
-func (s *Service) History(ctx context.Context, userID uuid.UUID, before *time.Time, limit int) ([]ListItem, error) {
-	rows, err := store.New(s.Pool).ListUserGames(ctx, store.ListUserGamesParams{UserID: userID, Before: before, Lim: int32(limit)})
+func (s *Service) History(ctx context.Context, userID uuid.UUID, before *time.Time, offset, limit int) ([]ListItem, error) {
+	rows, err := store.New(s.Pool).ListUserGames(ctx, store.ListUserGamesParams{UserID: userID, Before: before, Off: int32(offset), Lim: int32(limit)})
 	if err != nil {
 		return nil, err
 	}
