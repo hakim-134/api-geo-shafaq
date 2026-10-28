@@ -118,6 +118,12 @@ func (s *Server) NextRoomRound(w http.ResponseWriter, r *http.Request, code oapi
 	})
 }
 
+func (s *Server) HoldRoomRound(w http.ResponseWriter, r *http.Request, code oapi.RoomCode) {
+	s.inRoom(w, r, code, func(rm *room.Room, u *store.User) error {
+		return rm.Hold(r.Context(), u.ID)
+	})
+}
+
 func (s *Server) KickRoomPlayer(w http.ResponseWriter, r *http.Request, code oapi.RoomCode) {
 	var body oapi.RoomTarget
 	if !decode(r, &body) {
@@ -424,6 +430,10 @@ func (s *Server) roomOut(ctx context.Context, v *room.View) oapi.RoomState {
 		GameId: v.GameID, YourGame: v.YourGame, Max: v.Max, MaxPlayers: room.MaxPlayers,
 		Players: make([]oapi.RoomPlayer, 0, len(v.Players)), Results: make([]oapi.RoomResult, 0, len(v.Results)),
 	}
+	if v.NextIn != nil {
+		ms := int(*v.NextIn / time.Millisecond)
+		out.NextMs = &ms
+	}
 	if v.Blocked != nil {
 		b := v.Blocked.Error()
 		out.Blocked = &b
@@ -459,6 +469,9 @@ func (s *Server) roomOut(ctx context.Context, v *room.View) oapi.RoomState {
 		rr := oapi.RoomResult{N: res.N, Actual: point(res.Actual), Place: placeOut(res.Place), Scores: make([]oapi.RoomScore, 0, len(res.Scores))}
 		for _, sc := range res.Scores {
 			o := oapi.RoomScore{Player: sc.Player, Score: sc.Score, HintsUsed: sc.Hints, Km: sc.Km}
+			if sc.Base > 0 {
+				o.Base = &sc.Base
+			}
 			if sc.Guess != nil {
 				g := point(*sc.Guess)
 				o.Guess = &g
@@ -529,7 +542,11 @@ func (s *Server) roomTable(ctx context.Context, g *game.Game) (*oapi.RoomTable, 
 	}
 	for _, r := range rows {
 		u := store.User{ID: r.UserID, Name: r.Name, Avatar: r.Avatar, Guest: r.Guest, CreatedAt: r.CreatedAt, BannedAt: r.BannedAt}
-		out.Players = append(out.Players, oapi.RoomTableRow{Player: publicUser(u), Game: r.ID, Total: int(r.Total), Rounds: int(r.Played)})
+		row := oapi.RoomTableRow{Player: publicUser(u), Game: r.ID, Total: int(r.Total), Rounds: int(r.Played)}
+		if n := game.CostlyHints(r.Rules, int(r.HintsUsed)); n > 0 {
+			row.Hints = &n
+		}
+		out.Players = append(out.Players, row)
 	}
 	return out, nil
 }

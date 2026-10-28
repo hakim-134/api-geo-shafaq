@@ -214,6 +214,9 @@ func resultOut(r *game.Result) oapi.RoundResult {
 		g := point(*r.Guess)
 		out.Guess = &g
 	}
+	if r.Base > 0 {
+		out.Base = &r.Base
+	}
 	if r.Place.Metro != nil {
 		out.Place.Metro = &oapi.Metro{Name: text(r.Place.Metro.Name), Km: r.Place.Metro.Km}
 	}

@@ -125,6 +125,7 @@ type Result struct {
 	Guess     *geo.Point
 	Km        *float64
 	Score     int
+	Base      int // the score before hints, when they took points (0: they took none)
 	HintsUsed int
 	Late      bool
 	Place     places.Info
@@ -265,12 +266,39 @@ func (s *Service) round(g *Game, r store.GameRoundsRow) (Round, error) {
 		if r.HasGuess {
 			res.Guess = &geo.Point{Lat: r.GuessLat, Lon: r.GuessLon}
 		}
+		if r.Km != nil && !res.Late {
+			// the score before hints is not stored: the same formula gives it back, unless
+			// the map's size changed since
+			if sc, base := scored(*r.Km, g.Map.SizeKm, g.Rules, len(rd.Hints)); sc == res.Score {
+				res.Base = base
+			}
+		}
 		rd.Result = res
 	} else if r.Deadline != nil {
 		left := max(r.Deadline.Sub(s.now()), 0)
 		rd.Remaining = &left
 	}
 	return rd, nil
+}
+
+// CostlyHints is hints taken in a game with these stored rules, or 0 when hints were free:
+// a free hint has no cost to show.
+func CostlyHints(rulesJSON []byte, hints int) int {
+	var rs rules.Rules
+	if hints == 0 || json.Unmarshal(rulesJSON, &rs) != nil || rs.Hints.Cost <= 0 {
+		return 0
+	}
+	return hints
+}
+
+// scored is a guess km away with hints taken, and the score before them when they took points.
+func scored(km, sizeKm float64, rs rules.Rules, hints int) (got, base int) {
+	before := score.Round(km, sizeKm, rs.ScoreScale)
+	got = score.WithHints(before, hints, rs.Hints.Cost)
+	if got != before {
+		base = before
+	}
+	return got, base
 }
 
 func deref[T any](p *T) T {
@@ -761,7 +789,7 @@ func (s *Service) Guess(ctx context.Context, userID, id uuid.UUID, n int, pos *g
 			km := geo.DistanceKm(actual, *pos)
 			res.Km = &km
 			if !late {
-				res.Score = score.WithHints(score.Round(km, g.Map.SizeKm, g.Rules.ScoreScale), len(rd.Hints), g.Rules.Hints.Cost)
+				res.Score, res.Base = scored(km, g.Map.SizeKm, g.Rules, len(rd.Hints))
 			}
 			params.Lat, params.Lon, params.Km = &pos.Lat, &pos.Lon, &km
 		}
@@ -828,6 +856,7 @@ type ListItem struct {
 	Total      int
 	Rounds     int
 	Players    int // a room game: how many played it
+	Hints      int // hints taken, when they cost points
 }
 
 func (s *Service) History(ctx context.Context, userID uuid.UUID, before *time.Time, offset, limit int) ([]ListItem, error) {
@@ -840,7 +869,7 @@ func (s *Service) History(ctx context.Context, userID uuid.UUID, before *time.Ti
 		out = append(out, ListItem{
 			ID: r.ID, MapSlug: r.MapSlug, MapName: places.NewText(r.NameUz, r.NameRu, r.NameEn),
 			Status: r.Status, StartedAt: r.StartedAt, FinishedAt: r.FinishedAt, Total: int(r.Total), Rounds: int(r.Played),
-			Players: int(r.Players),
+			Players: int(r.Players), Hints: CostlyHints(r.Rules, int(r.HintsUsed)),
 		})
 	}
 	return out, nil

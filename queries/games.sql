@@ -29,7 +29,7 @@ WHERE status = 'playing' AND started_at < now() - make_interval(hours => @older_
 -- name: ListUserGames :many
 -- Newest first; @before is the started_at of the last game on the previous page, or @off
 -- skips that many (numbered pages).
-SELECT g.id, g.status, g.started_at, g.finished_at, g.total, g.rules, g.played,
+SELECT g.id, g.status, g.started_at, g.finished_at, g.total, g.rules, g.played, g.hints_used,
        m.slug AS map_slug, m.name_uz, m.name_ru, m.name_en,
        (SELECT count(*) FROM games x WHERE x.room_game = g.room_game)::int AS players
 FROM games g

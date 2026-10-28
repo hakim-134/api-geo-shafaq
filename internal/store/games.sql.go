@@ -275,7 +275,7 @@ func (q *Queries) GetGame(ctx context.Context, id uuid.UUID) (Game, error) {
 }
 
 const listUserGames = `-- name: ListUserGames :many
-SELECT g.id, g.status, g.started_at, g.finished_at, g.total, g.rules, g.played,
+SELECT g.id, g.status, g.started_at, g.finished_at, g.total, g.rules, g.played, g.hints_used,
        m.slug AS map_slug, m.name_uz, m.name_ru, m.name_en,
        (SELECT count(*) FROM games x WHERE x.room_game = g.room_game)::int AS players
 FROM games g
@@ -301,6 +301,7 @@ type ListUserGamesRow struct {
 	Total      int32
 	Rules      json.RawMessage
 	Played     int32
+	HintsUsed  int32
 	MapSlug    string
 	NameUz     string
 	NameRu     string
@@ -332,6 +333,7 @@ func (q *Queries) ListUserGames(ctx context.Context, arg ListUserGamesParams) ([
 			&i.Total,
 			&i.Rules,
 			&i.Played,
+			&i.HintsUsed,
 			&i.MapSlug,
 			&i.NameUz,
 			&i.NameRu,

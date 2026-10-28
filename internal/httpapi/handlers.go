@@ -120,6 +120,9 @@ func (s *Server) ListMyGames(w http.ResponseWriter, r *http.Request, params oapi
 		if it.Players > 0 {
 			page.Games[len(page.Games)-1].Players = &it.Players
 		}
+		if it.Hints > 0 {
+			page.Games[len(page.Games)-1].HintsUsed = &it.Hints
+		}
 	}
 	if len(items) == limit {
 		next := encodeCursor(items[len(items)-1].StartedAt)

@@ -108,7 +108,7 @@ func (q *Queries) FinishRoomGames(ctx context.Context, ids []uuid.UUID) error {
 }
 
 const roomGameTable = `-- name: RoomGameTable :many
-SELECT g.id, g.user_id, g.total, g.played, g.status,
+SELECT g.id, g.user_id, g.total, g.played, g.status, g.hints_used, g.rules,
        u.name, u.avatar, u.guest, u.created_at, u.banned_at
 FROM games g
 JOIN users u ON u.id = g.user_id
@@ -122,6 +122,8 @@ type RoomGameTableRow struct {
 	Total     int32
 	Played    int32
 	Status    string
+	HintsUsed int32
+	Rules     json.RawMessage
 	Name      string
 	Avatar    string
 	Guest     bool
@@ -145,6 +147,8 @@ func (q *Queries) RoomGameTable(ctx context.Context, roomGame *uuid.UUID) ([]Roo
 			&i.Total,
 			&i.Played,
 			&i.Status,
+			&i.HintsUsed,
+			&i.Rules,
 			&i.Name,
 			&i.Avatar,
 			&i.Guest,

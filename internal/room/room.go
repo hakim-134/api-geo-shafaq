@@ -56,6 +56,10 @@ const (
 	awayGrace = 20 * time.Second
 	// A room nobody is connected to closes after this.
 	idleTTL = 15 * time.Minute
+	// A round's result stays this long for the reveal (the line, the flag, the score), then a
+	// ring counts autoNext on every phone and the next round starts by itself.
+	revealFor = 3 * time.Second
+	autoNext  = 10 * time.Second
 	// How many times a round may swap a panorama no viewer could open.
 	maxReplace = 5
 	// A round that cannot be written to Postgres is tried again this often, this many times.
@@ -68,7 +72,7 @@ type Phase string
 const (
 	Lobby   Phase = "lobby"   // waiting for the host to start
 	Playing Phase = "playing" // a round is on
-	Result  Phase = "result"  // a round's result; the host goes on
+	Result  Phase = "result"  // a round's result; the next round starts by itself, or the host goes on
 	Final   Phase = "final"   // the game's table; the host starts again or changes the rules
 )
 
@@ -106,6 +110,7 @@ type state struct {
 	Closed     bool                    `json:"closed"`   // the game's rows are finished
 	Round      *Round                  `json:"round,omitempty"`
 	Done       []*Done                 `json:"done"`
+	NextAt     *time.Time              `json:"nextAt,omitempty"` // a result: when the room goes on by itself; nil once the host holds it
 	EmptySince *time.Time              `json:"emptySince,omitempty"`
 }
 
@@ -161,6 +166,7 @@ type Score struct {
 	Guess  *geo.Point `json:"guess,omitempty"`
 	Km     *float64   `json:"km,omitempty"`
 	Score  int        `json:"score"`
+	Base   int        `json:"base,omitempty"` // the score before hints, when they took points
 	Hints  int        `json:"hints"`
 }
 
@@ -512,29 +518,55 @@ func (r *Room) Next(ctx context.Context, id uuid.UUID, finish bool) error {
 	if r.st.Phase != Result {
 		return game.ErrWrongPhase
 	}
+	if err := r.advance(ctx, finish); err != nil {
+		return err
+	}
+	r.changed(ctx)
+	return nil
+}
+
+// Hold: the host stops the ring; the room waits for their Next.
+func (r *Room) Hold(ctx context.Context, id uuid.UUID) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if _, err := r.host(id); err != nil {
+		return err
+	}
+	if r.st.Phase != Result {
+		return game.ErrWrongPhase
+	}
+	if r.st.NextAt == nil {
+		return nil
+	}
+	r.st.NextAt = nil
+	r.changed(ctx)
+	return nil
+}
+
+// advance goes on from a round's result: to the next round, or (finish, or after the last
+// round) to the game's table.
+func (r *Room) advance(ctx context.Context, finish bool) error {
 	n := len(r.st.Done)
 	if finish || r.st.Rules.Last(n) {
 		r.finish(ctx)
-		r.changed(ctx)
 		return nil
 	}
 	pick, err := r.hub.Games.PickRound(ctx, r.m, r.st.Rules, r.used(), r.st.Seed, n+1, 0)
 	if errors.Is(err, game.ErrNoPanorama) && r.st.Rules.Endless() {
 		r.finish(ctx) // an endless game that has shown every panorama of its map is done
-		r.changed(ctx)
 		return nil
 	}
 	if err != nil {
 		return err
 	}
 	r.beginRound(ctx, n+1, pick)
-	r.changed(ctx)
 	return nil
 }
 
 func (r *Room) finish(ctx context.Context) {
 	r.st.Phase = Final
 	r.st.Round = nil
+	r.st.NextAt = nil
 	r.persist(ctx)
 }
 
@@ -563,6 +595,7 @@ func (r *Room) beginRound(ctx context.Context, n int, pick game.Pick) {
 	}
 	r.st.Round = rd
 	r.st.Phase = Playing
+	r.st.NextAt = nil
 	r.hub.Games.Usage.Count(ctx, rd.Provider)
 }
 
@@ -795,7 +828,11 @@ func (r *Room) endRound(ctx context.Context) {
 		if pos != nil {
 			km := geo.DistanceKm(rd.Actual, *pos)
 			sc.Km = &km
-			sc.Score = score.WithHints(score.Round(km, r.st.SizeKm, r.st.Rules.ScoreScale), sc.Hints, r.st.Rules.Hints.Cost)
+			base := score.Round(km, r.st.SizeKm, r.st.Rules.ScoreScale)
+			sc.Score = score.WithHints(base, sc.Hints, r.st.Rules.Hints.Cost)
+			if sc.Score != base {
+				sc.Base = base
+			}
 		}
 		p.Total += sc.Score
 		d.Scores = append(d.Scores, sc)
@@ -804,6 +841,8 @@ func (r *Room) endRound(ctx context.Context) {
 	r.st.Done = append(r.st.Done, d)
 	r.st.Round = nil
 	r.st.Phase = Result
+	next := r.now().Add(revealFor + autoNext)
+	r.st.NextAt = &next
 	r.persist(ctx)
 }
 
@@ -932,8 +971,9 @@ func orEmpty(h []game.Hint) []game.Hint {
 // ---------- the clock ----------
 
 // tick runs twice a second: it starts a clock nobody's viewer started, ends rounds at their
-// deadline or when the last present player answered, hands the room on from a host who is
-// gone, retries Postgres, and closes a room nobody has had open for idleTTL.
+// deadline or when the last present player answered, goes on from a result when its ring
+// runs out, hands the room on from a host who is gone, retries Postgres, and closes a room
+// nobody has had open for idleTTL.
 func (r *Room) tick(ctx context.Context) {
 	if !r.busy.CompareAndSwap(false, true) {
 		return
@@ -960,6 +1000,17 @@ func (r *Room) tick(ctx context.Context) {
 			r.endIfAllGuessed(ctx) // someone away for longer than awayGrace is not waited for
 			changed = changed || r.st.Phase != Playing || v != r.st.Ver
 		}
+	}
+	if r.st.Phase == Result && r.st.NextAt != nil && !now.Before(*r.st.NextAt) {
+		// nobody there (everyone gone longer than awayGrace): the room waits for them, and
+		// does not spend panoramas on an empty room
+		if !slices.ContainsFunc(r.active(), func(p *Player) bool { return r.present(p, now) }) {
+			r.st.NextAt = nil
+		} else if err := r.advance(ctx, false); err != nil {
+			slog.WarnContext(ctx, "room next round", "room", r.st.Code, "err", err)
+			r.st.NextAt = nil // the host's Next tries again, and says why
+		}
+		changed = true
 	}
 	if h := r.player(r.st.Host); h == nil || h.Left || (h.conns == 0 && h.AwaySince != nil && now.Sub(*h.AwaySince) >= awayGrace) {
 		if r.passHost(h == nil || h.Left) {

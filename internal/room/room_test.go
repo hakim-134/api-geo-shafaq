@@ -470,3 +470,97 @@ func TestAnIdleRoomCloses(t *testing.T) {
 		t.Fatalf("its game should be finished with the round played: %s", g.Status)
 	}
 }
+
+func TestTheNextRoundStartsByItself(t *testing.T) {
+	f := setup(t, 2)
+	ctx := context.Background()
+	rm, pages := f.open(roomRules(3, 0))
+	a, b := f.users[0].ID, f.users[1].ID
+	play := func(rm *Room, n int) {
+		t.Helper()
+		must(t, rm.Shown(ctx, a, n, nil))
+		pos := geo.Offset(rm.st.Round.Actual, 0.5, 1)
+		must(t, rm.Guess(ctx, a, n, &pos))
+		must(t, rm.Guess(ctx, b, n, &pos))
+		if rm.View(a).Phase != Result {
+			t.Fatalf("round %d should have ended", n)
+		}
+	}
+	must(t, rm.Start(ctx, a))
+
+	// b's hint costs half the round (roomRules): the result says what it was before it
+	must(t, rm.Shown(ctx, a, 1, nil))
+	_, err := rm.Hint(ctx, b, 1)
+	must(t, err)
+	pos := geo.Offset(rm.st.Round.Actual, 0.5, 1)
+	must(t, rm.Guess(ctx, a, 1, &pos))
+	must(t, rm.Guess(ctx, b, 1, &pos))
+	v := rm.View(a)
+	sa, sb := v.Results[0].Scores[0], v.Results[0].Scores[1]
+	if sa.Base != 0 || sb.Base != sa.Score || sb.Score != (sa.Score+1)/2 || sb.Hints != 1 {
+		t.Fatalf("the same guess: a without a hint, b with one at half: %+v %+v", sa, sb)
+	}
+
+	// the reveal, then a 10 s ring, then round 2 for everyone
+	if v.NextIn == nil || *v.NextIn != revealFor+autoNext {
+		t.Fatalf("a result goes on by itself in 13 s: %v", v.NextIn)
+	}
+	f.tick(12 * time.Second)
+	if v := rm.View(b); v.Phase != Result || *v.NextIn != time.Second {
+		t.Fatalf("the ring is still on: %s %v", v.Phase, v.NextIn)
+	}
+	f.tick(time.Second)
+	if v := rm.View(b); v.Phase != Playing || v.Round.N != 2 || v.NextIn != nil {
+		t.Fatalf("round 2 should start by itself: %s", v.Phase)
+	}
+	if pages[1].last["phase"] != "playing" {
+		t.Fatalf("the pages were not told: %v", pages[1].last)
+	}
+
+	// the host holds it: the room waits for their Next
+	play(rm, 2)
+	if err := rm.Hold(ctx, b); !errors.Is(err, ErrNotHost) {
+		t.Fatalf("only the host holds: %v", err)
+	}
+	must(t, rm.Hold(ctx, a))
+	f.tick(30 * time.Second)
+	if v := rm.View(b); v.Phase != Result || v.NextIn != nil {
+		t.Fatalf("a held result waits: %s %v", v.Phase, v.NextIn)
+	}
+	must(t, rm.Next(ctx, a, false))
+
+	// a restart in the middle of the ring: it goes on from where it was, then to the table
+	play(rm, 3)
+	f.tick(5 * time.Second)
+	f.hub.Shutdown(ctx)
+	code := rm.st.Code
+	f.hub = f.newHub()
+	f.clock = f.clock.Add(4 * time.Second)
+	rm2, err := f.hub.Get(ctx, code)
+	must(t, err)
+	if v := rm2.View(a); v.Phase != Result || v.NextIn == nil || *v.NextIn != 4*time.Second {
+		t.Fatalf("the ring goes on after a restart (13 − 9 s): %s %v", v.Phase, v.NextIn)
+	}
+	f.tick(4 * time.Second)
+	if v := rm2.View(a); v.Phase != Final {
+		t.Fatalf("after the last round's ring, the table: %s", v.Phase)
+	}
+}
+
+func TestAnEmptyRoomDoesNotPlayOn(t *testing.T) {
+	f := setup(t, 2)
+	ctx := context.Background()
+	rm, pages := f.open(roomRules(3, 0))
+	a, b := f.users[0].ID, f.users[1].ID
+	must(t, rm.Start(ctx, a))
+	must(t, rm.Shown(ctx, a, 1, nil))
+	must(t, rm.Guess(ctx, a, 1, nil))
+	must(t, rm.Guess(ctx, b, 1, nil))
+	rm.Drop(ctx, pages[0])
+	rm.Drop(ctx, pages[1])
+	f.tick(awayGrace)
+	f.tick(time.Second)
+	if v := rm.View(a); v.Phase != Result || v.NextIn != nil {
+		t.Fatalf("nobody is there: the room waits, and spends no panorama: %s %v", v.Phase, v.NextIn)
+	}
+}

@@ -194,8 +194,11 @@ func TestHintsAndRepeats(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if first.Score != 2500 {
-		t.Fatalf("a perfect guess with one hint at 50%% should be 2500, got %d", first.Score)
+	if first.Score != 2500 || first.Base != 5000 {
+		t.Fatalf("a perfect guess with one hint at 50%% should be 2500 of 5000, got %d of %d", first.Score, first.Base)
+	}
+	if read, _ := f.svc.Get(ctx, f.user, g.ID); read.Rounds[0].Result.Base != 5000 {
+		t.Fatalf("the game page should show the score before the hint too: %+v", read.Rounds[0].Result)
 	}
 	again, err := f.svc.Guess(ctx, f.user, g.ID, 1, &geo.Point{Lat: 41.2, Lon: 69.1})
 	if err != nil || again.Score != first.Score {

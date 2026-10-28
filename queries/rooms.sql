@@ -31,7 +31,7 @@ WHERE id = ANY(@ids::uuid[]) AND status = 'playing';
 
 -- name: RoomGameTable :many
 -- Everyone's game of one room game, best first.
-SELECT g.id, g.user_id, g.total, g.played, g.status,
+SELECT g.id, g.user_id, g.total, g.played, g.status, g.hints_used, g.rules,
        u.name, u.avatar, u.guest, u.created_at, u.banned_at
 FROM games g
 JOIN users u ON u.id = g.user_id

@@ -116,13 +116,20 @@ Friends on one map, the same panorama at the same time, with the same rules as s
 `POST /v1/rooms` opens one (a 5-letter code, the caller hosts); every player's page keeps
 `/v1/rooms/{code}/live` open, a WebSocket that joins the room with the session (no per-room
 token) and brings its state after every change. Actions are plain requests that answer with
-the state too: `shown`, `fail`, `hint`, `pin`, `guess` per round; `start`, `next`, `rules`,
-`kick`, `host` for the host; `leave`.
+the state too: `shown`, `fail`, `hint`, `pin`, `guess` per round; `start`, `next`, `hold`,
+`rules`, `kick`, `host` for the host; `leave`.
 
 - **A round** ends when every present player answered, or at its deadline (the clock starts
   when the first viewer opens the panorama; after the first answer the others get 45 s).
   Whoever did not press Guess is scored by their last pin. A player whose page is gone (a
   reload, a deploy) is waited for 20 s; a host gone that long hands the room on.
+- **A result** goes on by itself: 3 s for the reveal, then a 10 s ring (`nextMs` in the
+  state; the deadline is in the snapshot, so it survives a deploy), then the next round, or the
+  table after the last. The host's `next` goes at once ("Hozir"), `hold` stops the ring until
+  their `next`. A room with nobody there doesn't go on.
+- **A hint's cost:** every result (`RoundResult`, `RoomScore`) carries `base`, the score before
+  hints, when they took points; the room table and history carry the hints taken in a game
+  whose hints cost something. The formula stays in `internal/score`.
 - **Surviving a deploy:** the room lives in the API's memory and is saved to Valkey
   (`room:<CODE>`) before anyone hears of a change. On SIGTERM the API closes the sockets with
   1012; the pages reconnect, and the next process loads the room on its first request, the

@@ -2,6 +2,8 @@
 // game's pages do: a WebSocket each that reconnects by itself, actions retried while the
 // server is away. Run it, redeploy the API meanwhile, and the room should simply finish
 // (PLAN 5: "12 phones play a room while the API is redeployed, and nobody notices").
+// Every other result goes on by itself after its ring, the others by the host's "Hozir"; a
+// third of the players take a hint, and their scores must show what the hint cost.
 // Plays demo panoramas only, never Yandex.
 //
 //	go run ./cmd/roomsim                                   # 12 players, 3 rounds of 30 s
@@ -43,6 +45,7 @@ type state struct {
 	Code     string `json:"code"`
 	Ver      int64  `json:"ver"`
 	Phase    string `json:"phase"`
+	NextMs   *int   `json:"nextMs"`
 	Host     string `json:"host"`
 	You      string `json:"you"`
 	YourGame string `json:"yourGame"`
@@ -51,6 +54,7 @@ type state struct {
 		Swap     int  `json:"swap"`
 		Shown    bool `json:"shown"`
 		Guessed  bool `json:"guessed"`
+		Left     int  `json:"hintsLeft"`
 		Answered int  `json:"answered"`
 		Players  int  `json:"players"`
 	} `json:"round"`
@@ -59,6 +63,8 @@ type state struct {
 		Scores []struct {
 			Player string `json:"player"`
 			Score  int    `json:"score"`
+			Base   *int   `json:"base"`
+			Hints  int    `json:"hintsUsed"`
 		} `json:"scores"`
 	} `json:"results"`
 	Players []struct {
@@ -264,7 +270,9 @@ func (b *bot) live(ctx context.Context, code string) {
 func (b *bot) play(ctx context.Context, code string) error {
 	room := "/v1/rooms/" + code
 	shown, guessed, nexted := map[int]bool{}, map[int]bool{}, map[int]bool{}
+	checked := map[int]bool{}
 	var think time.Time
+	var resultAt time.Time
 	for {
 		s := b.state()
 		switch {
@@ -280,18 +288,46 @@ func (b *bot) play(ctx context.Context, code string) error {
 				think = time.Now().Add(time.Duration(3+rand.IntN(8)) * time.Second)
 			}
 			if !guessed[n] && !s.Round.Guessed && time.Now().After(think) {
+				if b.i%3 == 1 && s.Round.Left > 0 {
+					if err := b.postRetry(ctx, fmt.Sprintf("%s/rounds/%d/hint", room, n), nil); err != nil {
+						return err
+					}
+				}
 				pos := map[string]float64{"lat": 41.25 + rand.Float64()*0.12, "lon": 69.17 + rand.Float64()*0.2}
 				if err := b.postRetry(ctx, fmt.Sprintf("%s/rounds/%d/guess", room, n), map[string]any{"pos": pos}); err != nil {
 					return err
 				}
 				guessed[n] = true
 			}
-		case s.Phase == "result" && s.Host == s.You && !nexted[len(s.Results)]:
-			time.Sleep(1500 * time.Millisecond)
-			if err := b.postRetry(ctx, room+"/next", map[string]any{}); err != nil {
-				return err
+		case s.Phase == "result":
+			n := len(s.Results)
+			if !checked[n] {
+				checked[n] = true
+				resultAt = time.Now()
+				if s.NextMs == nil {
+					return fmt.Errorf("result %d: no ring (nextMs)", n)
+				}
+				for _, sc := range s.Results[n-1].Scores {
+					if sc.Hints > 0 && sc.Score > 0 && (sc.Base == nil || *sc.Base <= sc.Score) {
+						return fmt.Errorf("result %d: a hint's cost not shown: score %d, base %v", n, sc.Score, sc.Base)
+					}
+					if sc.Hints == 0 && sc.Base != nil {
+						return fmt.Errorf("result %d: a base without a hint", n)
+					}
+				}
 			}
-			nexted[len(s.Results)] = true
+			// odd results: the ring runs out by itself (13 s, a little more with a restart);
+			// even ones: the host's "Hozir"
+			if n%2 == 1 && time.Since(resultAt) > 40*time.Second {
+				return fmt.Errorf("result %d did not go on by itself", n)
+			}
+			if n%2 == 0 && s.Host == s.You && !nexted[n] {
+				time.Sleep(1500 * time.Millisecond)
+				if err := b.postRetry(ctx, room+"/next", map[string]any{}); err != nil {
+					return err
+				}
+				nexted[n] = true
+			}
 		}
 		select {
 		case <-ctx.Done():

@@ -718,6 +718,20 @@ paths:
         "409": { $ref: "#/components/responses/Error" }
         "503": { $ref: "#/components/responses/Error" }
 
+  /v1/rooms/{code}/hold:
+    post:
+      tags: [rooms]
+      operationId: holdRoomRound
+      summary: The host stops the ring of a round's result; the room waits for their `next`.
+      parameters:
+        - $ref: "#/components/parameters/RoomCode"
+      responses:
+        "200": { $ref: "#/components/responses/RoomState" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+
   /v1/rooms/{code}/kick:
     post:
       tags: [rooms]
@@ -1362,7 +1376,8 @@ components:
       type: string
       description: |
         lobby: waiting for the host to start; playing: a round is on; result: a round's
-        result, the host goes on; final: the game's table, the host starts again.
+        result, the room goes on by itself (`nextMs`) or when the host says; final: the
+        game's table, the host starts again.
       enum: [lobby, playing, result, final]
 
     RoomState:
@@ -1400,6 +1415,12 @@ components:
           type: array
           description: The finished rounds of the current game, oldest first.
           items: { $ref: "#/components/schemas/RoomResult" }
+        nextMs:
+          type: integer
+          description: |
+            A result: milliseconds until the next round (or, after the last, the table) starts
+            by itself. The result's reveal takes the first 3 s, then a 10 s ring. Absent once
+            the host holds it.
         max: { type: integer, description: The best possible total so far. }
         maxPlayers: { type: integer }
 
@@ -1454,6 +1475,9 @@ components:
         guess: { $ref: "#/components/schemas/LatLon" }
         km: { type: number, format: double }
         score: { type: integer }
+        base:
+          type: integer
+          description: The score before hints, when they took points (absent when they took none).
         hintsUsed: { type: integer }
 
     RoomMessage:
@@ -1488,6 +1512,9 @@ components:
         game: { type: string, format: uuid }
         total: { type: integer }
         rounds: { type: integer }
+        hints:
+          type: integer
+          description: Hints taken in the game, when hints cost points (absent otherwise).
 
     GameStatus:
       type: string
@@ -1539,6 +1566,9 @@ components:
         max: { type: integer }
         rounds: { type: integer }
         players: { type: integer, description: "A room game: how many played it." }
+        hintsUsed:
+          type: integer
+          description: Hints taken in the game, when hints cost points (absent otherwise).
 
     MapRef:
       type: object
@@ -1649,6 +1679,9 @@ components:
         guess: { $ref: "#/components/schemas/LatLon" }
         km: { type: number, format: double }
         score: { type: integer }
+        base:
+          type: integer
+          description: The score before hints, when they took points (absent when they took none).
         hintsUsed: { type: integer }
         late:
           type: boolean

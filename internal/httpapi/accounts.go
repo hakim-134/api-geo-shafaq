@@ -464,6 +464,9 @@ func (s *Server) profileOut(ctx context.Context, u store.User) (oapi.Profile, er
 			Id: it.ID, Map: oapi.MapRef{Slug: it.MapSlug, Name: text(it.MapName)}, Status: oapi.GameStatus(it.Status),
 			StartedAt: it.StartedAt, FinishedAt: it.FinishedAt, Total: it.Total, Max: it.Rounds * 5000, Rounds: it.Rounds,
 		}
+		if it.Hints > 0 {
+			p.Recent[i].HintsUsed = &it.Hints
+		}
 	}
 	return p, nil
 }

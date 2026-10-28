@@ -31,6 +31,7 @@ type View struct {
 	Players  []PlayerView
 	Round    *RoundView
 	Results  []ResultView
+	NextIn   *time.Duration // a result: how long until the room goes on by itself
 	Max      int
 	Blocked  error // the caller is not in the room and cannot join it: ErrKicked, ErrFull
 }
@@ -138,6 +139,10 @@ func (r *Room) view(id uuid.UUID) *View {
 			}
 		}
 		v.Round = rv
+	}
+	if r.st.Phase == Result && r.st.NextAt != nil {
+		left := max(r.st.NextAt.Sub(r.now()), 0)
+		v.NextIn = &left
 	}
 	for _, d := range r.st.Done {
 		v.Results = append(v.Results, ResultView{N: d.Round.N, Actual: d.Round.Actual, Place: d.Place, Scores: d.Scores})

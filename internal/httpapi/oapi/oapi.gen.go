@@ -443,10 +443,13 @@ type Game struct {
 
 // GameListItem defines model for GameListItem.
 type GameListItem struct {
-	FinishedAt *time.Time         `json:"finishedAt,omitempty"`
-	Id         openapi_types.UUID `json:"id"`
-	Map        MapRef             `json:"map"`
-	Max        int                `json:"max"`
+	FinishedAt *time.Time `json:"finishedAt,omitempty"`
+
+	// HintsUsed Hints taken in the game, when hints cost points (absent otherwise).
+	HintsUsed *int               `json:"hintsUsed,omitempty"`
+	Id        openapi_types.UUID `json:"id"`
+	Map       MapRef             `json:"map"`
+	Max       int                `json:"max"`
 
 	// Players A room game: how many played it.
 	Players   *int       `json:"players,omitempty"`
@@ -847,7 +850,8 @@ type RoomNext struct {
 }
 
 // RoomPhase lobby: waiting for the host to start; playing: a round is on; result: a round's
-// result, the host goes on; final: the game's table, the host starts again.
+// result, the room goes on by itself (`nextMs`) or when the host says; final: the
+// game's table, the host starts again.
 type RoomPhase string
 
 // RoomPlayer defines model for RoomPlayer.
@@ -922,6 +926,8 @@ type RoomRules struct {
 
 // RoomScore defines model for RoomScore.
 type RoomScore struct {
+	// Base The score before hints, when they took points (absent when they took none).
+	Base      *int               `json:"base,omitempty"`
 	Guess     *LatLon            `json:"guess,omitempty"`
 	HintsUsed int                `json:"hintsUsed"`
 	Km        *float64           `json:"km,omitempty"`
@@ -952,8 +958,14 @@ type RoomState struct {
 	Max        int `json:"max"`
 	MaxPlayers int `json:"maxPlayers"`
 
+	// NextMs A result: milliseconds until the next round (or, after the last, the table) starts
+	// by itself. The result's reveal takes the first 3 s, then a 10 s ring. Absent once
+	// the host holds it.
+	NextMs *int `json:"nextMs,omitempty"`
+
 	// Phase lobby: waiting for the host to start; playing: a round is on; result: a round's
-	// result, the host goes on; final: the game's table, the host starts again.
+	// result, the room goes on by itself (`nextMs`) or when the host says; final: the
+	// game's table, the host starts again.
 	Phase   RoomPhase    `json:"phase"`
 	Players []RoomPlayer `json:"players"`
 
@@ -981,10 +993,13 @@ type RoomTable struct {
 
 // RoomTableRow defines model for RoomTableRow.
 type RoomTableRow struct {
-	Game   openapi_types.UUID `json:"game"`
-	Player PublicUser         `json:"player"`
-	Rounds int                `json:"rounds"`
-	Total  int                `json:"total"`
+	Game openapi_types.UUID `json:"game"`
+
+	// Hints Hints taken in the game, when hints cost points (absent otherwise).
+	Hints  *int       `json:"hints,omitempty"`
+	Player PublicUser `json:"player"`
+	Rounds int        `json:"rounds"`
+	Total  int        `json:"total"`
 }
 
 // RoomTarget defines model for RoomTarget.
@@ -1021,6 +1036,9 @@ type RoundFailedReason string
 // RoundResult defines model for RoundResult.
 type RoundResult struct {
 	Actual LatLon `json:"actual"`
+
+	// Base The score before hints, when they took points (absent when they took none).
+	Base *int `json:"base,omitempty"`
 
 	// GameOver This was the last round.
 	GameOver  *bool    `json:"gameOver,omitempty"`
@@ -1353,6 +1371,9 @@ type ServerInterface interface {
 	// GetRoom A room as the caller sees it (`joined` false before their page has joined it).
 	// (GET /v1/rooms/{code})
 	GetRoom(w http.ResponseWriter, r *http.Request, code RoomCode)
+	// HoldRoomRound The host stops the ring of a round's result; the room waits for their `next`.
+	// (POST /v1/rooms/{code}/hold)
+	HoldRoomRound(w http.ResponseWriter, r *http.Request, code RoomCode)
 	// MakeRoomHost The host hands the room to another player.
 	// (POST /v1/rooms/{code}/host)
 	MakeRoomHost(w http.ResponseWriter, r *http.Request, code RoomCode)
@@ -2068,6 +2089,32 @@ func (siw *ServerInterfaceWrapper) GetRoom(w http.ResponseWriter, r *http.Reques
 	handler.ServeHTTP(w, r)
 }
 
+// HoldRoomRound operation middleware
+func (siw *ServerInterfaceWrapper) HoldRoomRound(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "code" -------------
+	var code RoomCode
+
+	err = runtime.BindStyledParameterWithOptions("simple", "code", r.PathValue("code"), &code, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "code", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.HoldRoomRound(w, r, code)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // MakeRoomHost operation middleware
 func (siw *ServerInterfaceWrapper) MakeRoomHost(w http.ResponseWriter, r *http.Request) {
 
@@ -2648,6 +2695,7 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/rooms/{code}/rules", wrapper.SetRoomRules)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/rooms/{code}/start", wrapper.StartRoomGame)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/rooms/{code}/next", wrapper.NextRoomRound)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/rooms/{code}/hold", wrapper.HoldRoomRound)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/rooms/{code}/kick", wrapper.KickRoomPlayer)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/rooms/{code}/host", wrapper.MakeRoomHost)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/rooms/{code}/leave", wrapper.LeaveRoom)
