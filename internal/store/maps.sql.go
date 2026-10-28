@@ -262,26 +262,28 @@ func (q *Queries) MapPlaces(ctx context.Context, mapID int64) ([]MapPlacesRow, e
 }
 
 const upsertOfficialMap = `-- name: UpsertOfficialMap :one
-INSERT INTO maps (slug, name_uz, name_ru, name_en, desc_uz, desc_ru, desc_en, rules, pick, sort)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+INSERT INTO maps (slug, name_uz, name_ru, name_en, desc_uz, desc_ru, desc_en, visibility, rules, pick, sort)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 ON CONFLICT (slug) DO UPDATE SET
     name_uz = excluded.name_uz, name_ru = excluded.name_ru, name_en = excluded.name_en,
     desc_uz = excluded.desc_uz, desc_ru = excluded.desc_ru, desc_en = excluded.desc_en,
+    visibility = excluded.visibility,
     rules = excluded.rules, pick = excluded.pick, sort = excluded.sort, updated_at = now()
 RETURNING id
 `
 
 type UpsertOfficialMapParams struct {
-	Slug   string
-	NameUz string
-	NameRu string
-	NameEn string
-	DescUz string
-	DescRu string
-	DescEn string
-	Rules  json.RawMessage
-	Pick   json.RawMessage
-	Sort   int32
+	Slug       string
+	NameUz     string
+	NameRu     string
+	NameEn     string
+	DescUz     string
+	DescRu     string
+	DescEn     string
+	Visibility string
+	Rules      json.RawMessage
+	Pick       json.RawMessage
+	Sort       int32
 }
 
 func (q *Queries) UpsertOfficialMap(ctx context.Context, arg UpsertOfficialMapParams) (int64, error) {
@@ -293,6 +295,7 @@ func (q *Queries) UpsertOfficialMap(ctx context.Context, arg UpsertOfficialMapPa
 		arg.DescUz,
 		arg.DescRu,
 		arg.DescEn,
+		arg.Visibility,
 		arg.Rules,
 		arg.Pick,
 		arg.Sort,

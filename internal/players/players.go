@@ -34,9 +34,12 @@ var Avatars = []string{
 }
 
 // GuestName is the emoji and two digits: 🐼_42. Names are not unique (68 × 100); the user
-// id tells players apart.
+// id tells players apart. 69 is skipped: a family's child plays this too.
 func GuestName(avatar string, n int) string {
-	return fmt.Sprintf("%s_%02d", avatar, n%100)
+	if n %= 100; n == 69 {
+		n = 96
+	}
+	return fmt.Sprintf("%s_%02d", avatar, n)
 }
 
 func randInt(n int) int {

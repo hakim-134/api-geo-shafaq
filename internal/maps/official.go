@@ -33,6 +33,7 @@ type official struct {
 	places     []string  // place slugs
 	pick       Pick
 	rules      rules.Rules
+	unlisted   bool // off the menu; old games and rooms still open it by its slug
 }
 
 // The four v0 areas, as maps.
@@ -40,7 +41,7 @@ var officials = []official{
 	{
 		slug:   "tashkent-streets",
 		name:   [3]string{"Toshkent ko‘chalari", "Улицы Ташкента", "Tashkent streets"},
-		desc:   [3]string{"Asosiy ko‘chalar: o‘z shahringizni o‘rganing", "Главные улицы: изучите свой город", "Main streets: learn your own city"},
+		desc:   [3]string{"Asosiy ko‘chalar", "Главные улицы", "Main streets"}, // a sign carries a name, not a slogan
 		places: []string{"toshkent"},
 		pick:   Pick{Group: "street", Pow: 0.75, SnapKm: 0.12, StreetsOnly: true},
 		rules:  rules.Easy,
@@ -52,6 +53,8 @@ var officials = []official{
 		places: []string{"toshkent"},
 		pick:   Pick{Group: "district", Pow: 0.5, SnapKm: 1, JitterKm: 0.1},
 		rules:  rules.Easy,
+		// one Tashkent on the home: "Toshkent ko‘chalari" (P1028 2.1)
+		unlisted: true,
 	},
 	{
 		slug: "historic",
@@ -79,9 +82,13 @@ func SeedOfficial(ctx context.Context, pool *pgxpool.Pool) error {
 		for i, m := range officials {
 			rulesJSON, _ := json.Marshal(m.rules)
 			pickJSON, _ := json.Marshal(m.pick)
+			visibility := "public"
+			if m.unlisted {
+				visibility = "unlisted"
+			}
 			id, err := q.UpsertOfficialMap(ctx, store.UpsertOfficialMapParams{
 				Slug: m.slug, NameUz: m.name[0], NameRu: m.name[1], NameEn: m.name[2],
-				DescUz: m.desc[0], DescRu: m.desc[1], DescEn: m.desc[2],
+				DescUz: m.desc[0], DescRu: m.desc[1], DescEn: m.desc[2], Visibility: visibility,
 				Rules: rulesJSON, Pick: pickJSON, Sort: int32(i),
 			})
 			if err != nil {

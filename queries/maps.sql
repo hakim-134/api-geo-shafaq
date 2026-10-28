@@ -8,11 +8,12 @@ SELECT * FROM maps WHERE slug = @slug;
 SELECT * FROM maps WHERE id = @id;
 
 -- name: UpsertOfficialMap :one
-INSERT INTO maps (slug, name_uz, name_ru, name_en, desc_uz, desc_ru, desc_en, rules, pick, sort)
-VALUES (@slug, @name_uz, @name_ru, @name_en, @desc_uz, @desc_ru, @desc_en, @rules, @pick, @sort)
+INSERT INTO maps (slug, name_uz, name_ru, name_en, desc_uz, desc_ru, desc_en, visibility, rules, pick, sort)
+VALUES (@slug, @name_uz, @name_ru, @name_en, @desc_uz, @desc_ru, @desc_en, @visibility, @rules, @pick, @sort)
 ON CONFLICT (slug) DO UPDATE SET
     name_uz = excluded.name_uz, name_ru = excluded.name_ru, name_en = excluded.name_en,
     desc_uz = excluded.desc_uz, desc_ru = excluded.desc_ru, desc_en = excluded.desc_en,
+    visibility = excluded.visibility,
     rules = excluded.rules, pick = excluded.pick, sort = excluded.sort, updated_at = now()
 RETURNING id;
 
