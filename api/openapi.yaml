@@ -431,6 +431,33 @@ paths:
               schema: { $ref: "#/components/schemas/PlaceShape" }
         "404": { $ref: "#/components/responses/Error" }
 
+  /v1/places/{slug}/map:
+    get:
+      tags: [maps]
+      operationId: getPlaceMap
+      summary: A place's children drawn in one frame, for the place map.
+      description: >-
+        Web Mercator, the longer side 1000 wide, y down. Names, progress and panorama counts
+        are in `/v1/places/{slug}`; this is only the drawing, the same for everyone.
+      parameters:
+        - $ref: "#/components/parameters/Slug"
+        - name: mark
+          in: query
+          description: Other places (any level) to mark in the same frame, by slug.
+          style: form
+          explode: false
+          schema:
+            type: array
+            maxItems: 20
+            items: { type: string }
+      responses:
+        "200":
+          description: The drawing
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PlaceMap" }
+        "404": { $ref: "#/components/responses/Error" }
+
   /v1/games:
     post:
       tags: [games]
@@ -1260,6 +1287,10 @@ components:
         outline:
           type: string
           description: The place's outline as a small SVG (maps of one place only).
+        places:
+          type: array
+          description: The slugs of the places the map is made of (the place map marks them).
+          items: { type: string }
 
     PlaceRef:
       description: A place, by name. On a map, the map's one place (or its parent).
@@ -1330,6 +1361,41 @@ components:
           description: GeoJSON (Multi)Polygon, simplified.
           additionalProperties: true
         outline: { type: string, description: The same shape as a small SVG. }
+
+    PlaceMap:
+      type: object
+      required: [slug, width, height, shapes, marks]
+      properties:
+        slug: { type: string }
+        width: { type: number, format: double }
+        height: { type: number, format: double }
+        shapes:
+          type: array
+          items: { $ref: "#/components/schemas/PlaceMapShape" }
+        marks:
+          type: array
+          description: The places asked for with `mark`, as points.
+          items: { $ref: "#/components/schemas/PlaceMapPoint" }
+
+    PlaceMapShape:
+      type: object
+      required: [slug, d, label]
+      properties:
+        slug: { type: string }
+        d: { type: string, description: The SVG path. }
+        label: { $ref: "#/components/schemas/PlaceMapPoint" }
+
+    PlaceMapPoint:
+      type: object
+      required: [slug, x, y]
+      description: A point well inside a place (the centre of its largest inscribed circle).
+      properties:
+        slug: { type: string }
+        x: { type: number, format: double }
+        y: { type: number, format: double }
+        name:
+          $ref: "#/components/schemas/Text"
+          description: The place's name (marks only; a shape's name is in its card).
 
     CreateGame:
       type: object

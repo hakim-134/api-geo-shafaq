@@ -110,6 +110,7 @@ type state struct {
 	Closed     bool                    `json:"closed"`   // the game's rows are finished
 	Round      *Round                  `json:"round,omitempty"`
 	Done       []*Done                 `json:"done"`
+	Prev       []geo.Point             `json:"prev,omitempty"`   // where the last game's rounds were: the next game keeps away (new streets)
 	NextAt     *time.Time              `json:"nextAt,omitempty"` // a result: when the room goes on by itself; nil once the host holds it
 	EmptySince *time.Time              `json:"emptySince,omitempty"`
 }
@@ -483,8 +484,13 @@ func (r *Room) Start(ctx context.Context, id uuid.UUID) error {
 	if err != nil {
 		return err
 	}
+	// "Yana o‘ynash": everyone stays, new streets, away from the ones the last game showed
+	prev := make([]geo.Point, 0, len(r.st.Done))
+	for _, d := range r.st.Done {
+		prev = append(prev, d.Round.Actual)
+	}
 	seed := rand.Int64()
-	pick, err := r.hub.Games.PickRound(ctx, m, rs, maps.Used{IDs: map[int64]bool{}}, seed, 1, 0)
+	pick, err := r.hub.Games.PickRound(ctx, m, rs, maps.Used{IDs: map[int64]bool{}, Pos: prev}, seed, 1, 0)
 	if err != nil {
 		return err
 	}
@@ -498,6 +504,7 @@ func (r *Room) Start(ctx context.Context, id uuid.UUID) error {
 	r.st.GameRows = map[uuid.UUID]uuid.UUID{}
 	r.st.Closed = false
 	r.st.Done = nil
+	r.st.Prev = prev
 	r.st.Players = slices.DeleteFunc(r.st.Players, func(p *Player) bool { return p.Left })
 	for _, p := range r.st.Players {
 		p.Total, p.HintsUsed = 0, 0
@@ -570,8 +577,11 @@ func (r *Room) finish(ctx context.Context) {
 	r.persist(ctx)
 }
 
+// used is what this game showed, and where the last game was: the pick keeps away from those
+// places as long as the map has others (after 40 tries it takes any panorama this game hasn't
+// shown, so a small map still plays).
 func (r *Room) used() maps.Used {
-	used := maps.Used{IDs: map[int64]bool{}}
+	used := maps.Used{IDs: map[int64]bool{}, Pos: slices.Clone(r.st.Prev)}
 	for _, d := range r.st.Done {
 		used.IDs[d.Round.PanoID] = true
 		used.Pos = append(used.Pos, d.Round.Actual)

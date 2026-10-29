@@ -39,3 +39,25 @@ func TestCleanName(t *testing.T) {
 		}
 	}
 }
+
+func TestGuestNames(t *testing.T) {
+	if got := GuestName("🦉", 42); got != "Ukki 42" {
+		t.Errorf("🦉 42: %q", got)
+	}
+	if got := GuestName("🦉", 7); got != "Ukki 17" {
+		t.Errorf("🦉 7: %q", got)
+	}
+	if got := GuestName("🦉", 69); got != "Ukki 96" {
+		t.Errorf("🦉 69: %q", got)
+	}
+	// every guest's name passes the filter players' own names go through
+	for _, a := range Avatars {
+		name := GuestName(a, 42)
+		if avatarWords[a] == "" {
+			t.Errorf("%s has no word", a)
+		}
+		if got, err := CleanName(name); err != nil || got != name {
+			t.Errorf("%s: %q does not pass the name filter: %v", a, name, err)
+		}
+	}
+}

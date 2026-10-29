@@ -220,6 +220,45 @@ func (s *Server) GetPlaceShape(w http.ResponseWriter, r *http.Request, slug stri
 	_, _ = w.Write(b)
 }
 
+// GetPlaceMap draws a place's children for the place map; the same for everyone, so it
+// caches like the shapes.
+func (s *Server) GetPlaceMap(w http.ResponseWriter, r *http.Request, slug string, params oapi.GetPlaceMapParams) {
+	rows, err := s.q.PlaceMapShapes(r.Context(), slug)
+	if err != nil {
+		fail(w, r, err)
+		return
+	}
+	if len(rows) == 0 {
+		writeError(w, http.StatusNotFound, "not_found")
+		return
+	}
+	f := rows[0]
+	out := oapi.PlaceMap{Slug: slug, Width: f.Width, Height: f.Height,
+		Shapes: make([]oapi.PlaceMapShape, 0, len(rows)), Marks: []oapi.PlaceMapPoint{}}
+	for _, row := range rows {
+		out.Shapes = append(out.Shapes, oapi.PlaceMapShape{Slug: row.Slug, D: row.D,
+			Label: oapi.PlaceMapPoint{Slug: row.Slug, X: row.Lx, Y: row.Ly}})
+	}
+	if params.Mark != nil && len(*params.Mark) > 0 {
+		marks := *params.Mark
+		if len(marks) > 20 {
+			marks = marks[:20]
+		}
+		pts, err := s.q.PlacePoints(r.Context(), marks)
+		if err != nil {
+			fail(w, r, err)
+			return
+		}
+		for _, p := range pts {
+			name := text(places.NewText(p.NameUz, p.NameRu, p.NameEn))
+			out.Marks = append(out.Marks, oapi.PlaceMapPoint{Slug: p.Slug, Name: &name,
+				X: (p.X - f.X0) * f.K, Y: (f.Y1 - p.Y) * f.K})
+		}
+	}
+	w.Header().Set("Cache-Control", "public, max-age=3600")
+	writeJSON(w, http.StatusOK, out)
+}
+
 // placeView: the place tree, and with progress the player's rounds (none without a session).
 func (s *Server) placeView(r *http.Request, progress bool) (placeView, error) {
 	t, err := s.places.Get(r.Context())

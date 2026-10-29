@@ -49,7 +49,7 @@ container, migrations at start, then the worker and the API on :8131).
 | `deploy/` | the server: Caddy, Prometheus, Loki/Alloy, Grafana (dashboard), the db image with pgBackRest, `deploy.sh`, `env.example` |
 | `internal/places` | the place tree from OSM, outlines, "where is this point"; panoramas per place and the player's progress there |
 | `internal/score`, `internal/rules` | the score formula and the one rule set |
-| `internal/players` | guests (🐼_42), accounts, sessions, merging, the name filter |
+| `internal/players` | guests (🦉 "Ukki 42": the avatar's word and a number), accounts, sessions, merging, the name filter |
 | `internal/auth` | checks Telegram's and Google's sign-in proofs (Mini App `initData`, Google ID tokens) |
 | `internal/httpapi` | handlers for the generated routes, CORS, the write check, metrics |
 | `internal/store` | sqlc output; never edit by hand |
@@ -127,6 +127,9 @@ the state too: `shown`, `fail`, `hint`, `pin`, `guess` per round; `start`, `next
   state; the deadline is in the snapshot, so it survives a deploy), then the next round, or the
   table after the last. The host's `next` goes at once ("Hozir"), `hold` stops the ring until
   their `next`. A room with nobody there doesn't go on.
+- **The next game** (the host's `start` after the table, "Yana o‘ynash") brings new streets:
+  its rounds keep away from the places the last game showed (`prev` in the snapshot), as long
+  as the map has others.
 - **A hint's cost:** every result (`RoundResult`, `RoomScore`) carries `base`, the score before
   hints, when they took points; the room table and history carry the hints taken in a game
   whose hints cost something. The formula stays in `internal/score`.
@@ -141,6 +144,11 @@ the state too: `shown`, `fail`, `hint`, `pin`, `guess` per round; `start`, `next
   per player; a room nobody has open for 15 minutes closes.
 
 ## Places
+
+`GET /v1/places/{slug}/map` draws a place's children for the place map (decision 0015 in the
+brief): one frame, Web Mercator with the longer side 1000 and y down, an SVG path and a point for
+the name per child; `?mark=a,b` adds other places as points (the historic cities' stars). The
+same for everyone, so it caches.
 
 `GET /v1/places/{slug}` (start at `uzbekistan`) is the place picker: the place, where it is,
 and the places inside it, each with its panoramas on the players' providers and the player's

@@ -590,6 +590,9 @@ type MapSummary struct {
 	// Place A place, by name. On a map, the map's one place (or its parent).
 	Place *PlaceRef `json:"place,omitempty"`
 
+	// Places The slugs of the places the map is made of (the place map marks them).
+	Places *[]string `json:"places,omitempty"`
+
 	// Progress How much of a place this player has seen (played a round there) and learned: a street
 	// or spot guessed within 500 m, a district or region guessed inside it.
 	Progress *Progress `json:"progress,omitempty"`
@@ -739,6 +742,36 @@ type PlaceInfo struct {
 
 	// Street A name in the three languages. `ru` and `en` fall back to `uz` (street signs are in Uzbek Latin).
 	Street *Text `json:"street,omitempty"`
+}
+
+// PlaceMap defines model for PlaceMap.
+type PlaceMap struct {
+	Height float64 `json:"height"`
+
+	// Marks The places asked for with `mark`, as points.
+	Marks  []PlaceMapPoint `json:"marks"`
+	Shapes []PlaceMapShape `json:"shapes"`
+	Slug   string          `json:"slug"`
+	Width  float64         `json:"width"`
+}
+
+// PlaceMapPoint A point well inside a place (the centre of its largest inscribed circle).
+type PlaceMapPoint struct {
+	// Name A name in the three languages. `ru` and `en` fall back to `uz` (street signs are in Uzbek Latin).
+	Name *Text   `json:"name,omitempty"`
+	Slug string  `json:"slug"`
+	X    float64 `json:"x"`
+	Y    float64 `json:"y"`
+}
+
+// PlaceMapShape defines model for PlaceMapShape.
+type PlaceMapShape struct {
+	// D The SVG path.
+	D string `json:"d"`
+
+	// Label A point well inside a place (the centre of its largest inscribed circle).
+	Label PlaceMapPoint `json:"label"`
+	Slug  string        `json:"slug"`
 }
 
 // PlaceRef A place, by name. On a map, the map's one place (or its parent).
@@ -1202,6 +1235,12 @@ type UnlinkIdentityJSONBody struct {
 	Id string `json:"id"`
 }
 
+// GetPlaceMapParams defines parameters for GetPlaceMap.
+type GetPlaceMapParams struct {
+	// Mark Other places (any level) to mark in the same frame, by slug.
+	Mark *[]string `form:"mark,omitempty" json:"mark,omitempty"`
+}
+
 // ReportUserJSONBody defines parameters for ReportUser.
 type ReportUserJSONBody struct {
 	Reason ReportUserJSONBodyReason `json:"reason"`
@@ -1359,6 +1398,9 @@ type ServerInterface interface {
 	// GetPlace A place for the place picker, with where it is and what is inside it.
 	// (GET /v1/places/{slug})
 	GetPlace(w http.ResponseWriter, r *http.Request, slug Slug)
+	// GetPlaceMap A place's children drawn in one frame, for the place map.
+	// (GET /v1/places/{slug}/map)
+	GetPlaceMap(w http.ResponseWriter, r *http.Request, slug Slug, params GetPlaceMapParams)
 	// GetPlaceShape A place's simplified boundary as GeoJSON, for the guess map.
 	// (GET /v1/places/{slug}/shape)
 	GetPlaceShape(w http.ResponseWriter, r *http.Request, slug Slug)
@@ -2000,6 +2042,48 @@ func (siw *ServerInterfaceWrapper) GetPlace(w http.ResponseWriter, r *http.Reque
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetPlace(w, r, slug)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetPlaceMap operation middleware
+func (siw *ServerInterfaceWrapper) GetPlaceMap(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "slug" -------------
+	var slug Slug
+
+	err = runtime.BindStyledParameterWithOptions("simple", "slug", r.PathValue("slug"), &slug, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "slug", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params GetPlaceMapParams
+
+	// ------------- Optional query parameter "mark" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", false, false, "mark", r.URL.Query(), &params.Mark, runtime.BindQueryParameterOptions{Type: "array", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "mark"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "mark", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetPlaceMap(w, r, slug, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -2681,6 +2765,7 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/maps/{slug}", wrapper.GetMap)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/places/{slug}", wrapper.GetPlace)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/places/{slug}/shape", wrapper.GetPlaceShape)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/places/{slug}/map", wrapper.GetPlaceMap)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/games", wrapper.CreateGame)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/games/{gameId}", wrapper.GetGame)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/games/{gameId}/finish", wrapper.FinishGame)

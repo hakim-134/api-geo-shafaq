@@ -59,6 +59,7 @@ func Import(ctx context.Context, pool *pgxpool.Pool, pbf string) error {
 		if slugs[slug] {
 			slug += "-" + strconv.FormatInt(b.OSMID, 10)
 		}
+		uz = FixUz(slug, uz)
 		if en == "" {
 			en = uz
 		}

@@ -79,6 +79,15 @@ func mapSummary(m *maps.Map, allowed map[string]bool, reg *provider.Registry, pv
 	if m.Pick.StreetsOnly {
 		out.Groups = shown.Streets
 	}
+	if pv.tree != nil {
+		slugs := make([]string, 0, len(m.Places))
+		for _, id := range m.Places {
+			if p := pv.tree.ByID(id); p != nil {
+				slugs = append(slugs, p.Slug)
+			}
+		}
+		out.Places = &slugs
+	}
 	if p := m.Place(pv.tree); p != nil {
 		out.Place, out.Parent = placeRef(p), placeRef(p.Parent)
 		if pv.progress {

@@ -1,5 +1,5 @@
 // Package players is guests, accounts and sessions. Everyone is a player from the first
-// visit: a guest with an emoji name like 🐼_42, no sign-in wall. Ways to sign in (Telegram,
+// visit: a guest with an emoji and a name like "Panda 42", no sign-in wall. Ways to sign in (Telegram,
 // Google) attach to the same user later, so nothing is lost (accounts.go).
 package players
 
@@ -20,26 +20,60 @@ import (
 	"github.com/hakim-134/api-geo-shafaq/internal/store"
 )
 
-// Avatars are the emojis guests get: animals, plants and friendly things that look fine
-// on a big screen in class or at work. Reviewed by hand; nothing rude, sad, national or
-// gambling-like (no 🍑, no 🎲).
-var Avatars = []string{
-	"🐼", "🦊", "🐨", "🐯", "🦁", "🐸", "🐵", "🦉", "🐧", "🐢",
-	"🐙", "🦋", "🐝", "🐞", "🦄", "🐳", "🐬", "🦒", "🦓", "🐘",
-	"🦔", "🦦", "🦥", "🐿️", "🦩", "🦜", "🐰", "🐻", "🐻‍❄️", "🐹",
-	"🐱", "🐶", "🐴", "🐫", "🦌", "🦚", "🦭", "🐠", "🦀", "🐌",
-	"🌵", "🌻", "🌷", "🍀", "🌳", "🍉", "🍎", "🍇", "🍋", "🥝",
-	"🥕", "🌽", "🍄", "⭐", "🌙", "⛰️", "🎈", "🪁", "🚲", "🚀",
-	"⚽", "🏀", "🎨", "🧩", "📚", "🎧", "🧭", "🗺️",
+// avatars are the emojis guests get, each with its word: animals, plants and friendly things
+// that look fine on a big screen in class or at work. Reviewed by hand; nothing rude, sad,
+// national or gambling-like (no 🍑, no 🎲), and none whose word is a tease (🦥 "yalqov",
+// lazy; 🐵 "maymun", said of people too). The word is the guest's name with two digits
+// ("Ukki 42"): Uzbek, the same in every language, so a friend reads out the name they see.
+var avatars = [][2]string{
+	{"🐼", "Panda"}, {"🦊", "Tulki"}, {"🐨", "Koala"}, {"🐯", "Yo‘lbars"}, {"🦁", "Sher"},
+	{"🐸", "Qurbaqa"}, {"🦉", "Ukki"}, {"🐧", "Pingvin"}, {"🐢", "Toshbaqa"},
+	{"🐙", "Sakkizoyoq"}, {"🦋", "Kapalak"}, {"🐝", "Asalari"}, {"🐞", "Xonqizi"}, {"🦄", "Yakkashox"},
+	{"🐳", "Kit"}, {"🐬", "Delfin"}, {"🦒", "Jirafa"}, {"🦓", "Zebra"}, {"🐘", "Fil"},
+	{"🦔", "Tipratikan"}, {"🦦", "Suvsar"}, {"🐿️", "Olmaxon"}, {"🦩", "Flamingo"},
+	{"🦜", "To‘tiqush"}, {"🐰", "Quyon"}, {"🐻", "Ayiq"}, {"🐻‍❄️", "Oqayiq"}, {"🐹", "Xomyak"},
+	{"🐱", "Mushuk"}, {"🐶", "Kuchukcha"}, {"🐴", "Ot"}, {"🐫", "Tuya"}, {"🦌", "Bug‘u"},
+	{"🦚", "Tovus"}, {"🦭", "Tyulen"}, {"🐠", "Baliqcha"}, {"🦀", "Qisqichbaqa"}, {"🐌", "Chig‘anoq"},
+	{"🌵", "Kaktus"}, {"🌻", "Kungaboqar"}, {"🌷", "Lola"}, {"🍀", "Beda"}, {"🌳", "Chinor"},
+	{"🍉", "Tarvuz"}, {"🍎", "Olma"}, {"🍇", "Uzum"}, {"🍋", "Limon"}, {"🥝", "Kivi"},
+	{"🥕", "Sabzi"}, {"🌽", "Makkajo‘xori"}, {"🍄", "Qo‘ziqorin"}, {"⭐", "Yulduz"}, {"🌙", "Oy"},
+	{"⛰️", "Tog‘"}, {"🎈", "Shar"}, {"🪁", "Varrak"}, {"🚲", "Velosiped"}, {"🚀", "Raketa"},
+	{"⚽", "To‘p"}, {"🏀", "Basketbol"}, {"🎨", "Rassom"}, {"🧩", "Jumboq"}, {"📚", "Kitob"},
+	{"🎧", "Quloqchin"}, {"🧭", "Kompas"}, {"🗺️", "Xarita"},
 }
 
-// GuestName is the emoji and two digits: 🐼_42. Names are not unique (68 × 100); the user
-// id tells players apart. 69 is skipped: a family's child plays this too.
+// Avatars are the emojis a player may pick.
+var Avatars = func() []string {
+	out := make([]string, len(avatars))
+	for i, a := range avatars {
+		out[i] = a[0]
+	}
+	return out
+}()
+
+var avatarWords = func() map[string]string {
+	out := make(map[string]string, len(avatars))
+	for _, a := range avatars {
+		out[a[0]] = a[1]
+	}
+	return out
+}()
+
+// GuestName is the avatar's word and a number from 10 to 99: "Ukki 42" (P1028 2.4; until
+// 2026-10-29 "🦉_42", which read like a password). Names are not unique; the user id tells
+// players apart. 69 is skipped: a family's child plays this too.
 func GuestName(avatar string, n int) string {
-	if n %= 100; n == 69 {
+	if n %= 100; n < 10 {
+		n += 10
+	}
+	if n == 69 {
 		n = 96
 	}
-	return fmt.Sprintf("%s_%02d", avatar, n)
+	word := avatarWords[avatar]
+	if word == "" {
+		word = "Mehmon"
+	}
+	return fmt.Sprintf("%s %d", word, n)
 }
 
 func randInt(n int) int {

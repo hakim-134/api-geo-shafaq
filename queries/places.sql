@@ -81,6 +81,42 @@ ON CONFLICT (kind, name_uz) DO UPDATE SET name_ru = excluded.name_ru, pos = excl
 -- name: PlaceShape :one
 SELECT slug, ST_AsGeoJSON(geom_simple, 4)::text AS geojson, outline_svg FROM places WHERE slug = @slug;
 
+-- name: PlaceMapShapes :many
+-- A place's children drawn in one frame, for the place map (P1028 4.1): Web Mercator, the
+-- longer side 1000 wide, y down (ST_AsSVG turns y over), as SVG paths, each with a point
+-- well inside it for its name. x0, y1 and k place other points in the same frame.
+WITH kids AS (
+    SELECT c.slug, ST_Transform(c.geom_simple, 3857) AS g
+    FROM places c
+    JOIN places p ON p.id = c.parent_id
+    WHERE p.slug = @slug AND c.geom_simple IS NOT NULL
+), box AS (
+    SELECT ST_XMin(e) AS x0, ST_YMax(e) AS y1, ST_XMax(e) - ST_XMin(e) AS w, ST_YMax(e) - ST_YMin(e) AS h
+    FROM (SELECT ST_Extent(g) AS e FROM kids) x
+), f AS (
+    SELECT x0, y1, w, h, 1000 / greatest(w, h) AS k FROM box
+)
+SELECT kids.slug,
+       ST_AsSVG(ST_Scale(ST_Translate(kids.g, -f.x0, -f.y1), f.k, f.k), 0, 1)::text AS d,
+       ((ST_X(m.c) - f.x0) * f.k)::float8 AS lx,
+       ((f.y1 - ST_Y(m.c)) * f.k)::float8 AS ly,
+       (f.w * f.k)::float8 AS width, (f.h * f.k)::float8 AS height,
+       f.x0::float8 AS x0, f.y1::float8 AS y1, f.k::float8 AS k
+FROM kids
+CROSS JOIN f
+CROSS JOIN LATERAL (SELECT (ST_MaximumInscribedCircle(kids.g)).center AS c) m
+ORDER BY kids.slug;
+
+-- name: PlacePoints :many
+-- A point well inside each named place, in Web Mercator: marks on a place map.
+SELECT slug, name_uz, name_ru, name_en, ST_X(c)::float8 AS x, ST_Y(c)::float8 AS y
+FROM (
+    SELECT slug, name_uz, name_ru, name_en,
+           (ST_MaximumInscribedCircle(ST_Transform(geom_simple, 3857))).center AS c
+    FROM places
+    WHERE slug = ANY(@slugs::text[]) AND geom_simple IS NOT NULL
+) p;
+
 -- name: ListPlaces :many
 -- The whole place tree, for the place picker.
 SELECT id, coalesce(parent_id, 0)::bigint AS parent_id, kind, slug, name_uz, name_ru, name_en,

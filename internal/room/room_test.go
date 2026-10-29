@@ -564,3 +564,39 @@ func TestAnEmptyRoomDoesNotPlayOn(t *testing.T) {
 		t.Fatalf("nobody is there: the room waits, and spends no panorama: %s %v", v.Phase, v.NextIn)
 	}
 }
+
+// "Yana o‘ynash": the next game brings new streets, away from the ones the last game showed,
+// and keeps that after a restart.
+func TestPlayAgainBringsNewStreets(t *testing.T) {
+	f := setup(t, 1)
+	ctx := context.Background()
+	rm, _ := f.open(roomRules(5, 0))
+	a := f.users[0].ID
+	play := func() []geo.Point {
+		t.Helper()
+		must(t, rm.Start(ctx, a))
+		var at []geo.Point
+		for n := 1; n <= 5; n++ {
+			if n == 3 { // a deploy in the middle: the next process remembers the last game
+				f.hub.Shutdown(ctx)
+				f.hub = f.newHub()
+				var err error
+				rm, err = f.hub.Get(ctx, rm.st.Code)
+				must(t, err)
+			}
+			must(t, rm.Shown(ctx, a, n, nil))
+			at = append(at, rm.st.Round.Actual)
+			must(t, rm.Guess(ctx, a, n, nil))
+			must(t, rm.Next(ctx, a, false))
+		}
+		return at
+	}
+	first := play()
+	for _, p := range play() {
+		for _, q := range first {
+			if geo.DistanceKm(p, q) < 1 {
+				t.Fatalf("the second game came back to the first one's streets: %v in %v", p, first)
+			}
+		}
+	}
+}

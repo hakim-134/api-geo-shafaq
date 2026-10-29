@@ -154,6 +154,34 @@ func (b *Boundary) Names() (uz, ru, en string) {
 	return CleanUz(uz), ru, en
 }
 
+// uzFixes are Uzbek names OpenStreetMap has wrong, by slug (the slug stays, so old games and
+// maps keep their place): Karakalpak or Russian spellings, a missing o‘, a straight
+// apostrophe for ʼ, towns without "shahri". Read through by hand on 2026-10-29 (P1028 4.2's
+// second review); migration 00008 put them in the database.
+var uzFixes = map[string]string{
+	"angren":            "Angren shahri",
+	"bekobod":           "Bekobod shahri",
+	"ohangaron":         "Ohangaron shahri",
+	"nurafshon-toytepa": "Nurafshon shahri",
+	"bozataw-rayoni":    "Bo‘zatov tumani",
+	"ellikqala-tumani":  "Ellikqalʼa tumani",
+	"tuproqqala-tumani": "Tuproqqalʼa tumani",
+	"kegeili-tumani":    "Kegeyli tumani",
+	"moynoq-tumani":     "Mo‘ynoq tumani",
+	"qoshkopir-tumani":  "Qo‘shko‘pir tumani",
+	"ugrut-tumani":      "Urgut tumani",
+	"showot-tumani":     "Shovot tumani",
+	"qonlikol-tumani":   "Qanliko‘l tumani",
+}
+
+// FixUz is the place's Uzbek name, corrected where OpenStreetMap's is wrong.
+func FixUz(slug, uz string) string {
+	if fixed, ok := uzFixes[slug]; ok {
+		return fixed
+	}
+	return uz
+}
+
 func firstOf(tags osm.Tags, keys ...string) string {
 	for _, k := range keys {
 		if v := strings.TrimSpace(tags.Find(k)); v != "" {
