@@ -466,7 +466,8 @@ func (s *Server) roomOut(ctx context.Context, v *room.View) oapi.RoomState {
 		out.Round = &rr
 	}
 	for _, res := range v.Results {
-		rr := oapi.RoomResult{N: res.N, Actual: point(res.Actual), Place: placeOut(res.Place), Scores: make([]oapi.RoomScore, 0, len(res.Scores))}
+		heading := res.Heading
+		rr := oapi.RoomResult{N: res.N, Actual: point(res.Actual), Heading: &heading, Place: placeOut(res.Place), Scores: make([]oapi.RoomScore, 0, len(res.Scores))}
 		for _, sc := range res.Scores {
 			o := oapi.RoomScore{Player: sc.Player, Score: sc.Score, HintsUsed: sc.Hints, Km: sc.Km}
 			if sc.Base > 0 {

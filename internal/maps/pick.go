@@ -15,9 +15,10 @@ type Used struct {
 }
 
 // PickRound picks a panorama for a round: a group first (weighted by its size to the power
-// Pick.Pow), then a panorama in it. It avoids panoramas the game already showed and places
-// too close to them (3% of the map's size: 1.2 km in Tashkent); after 40 tries it settles for
-// anything not shown yet. ok is false when the allowed providers have nothing here.
+// Pick.Pow), then a panorama in it. It avoids panoramas the game already showed, their
+// streets (a long street like Kichik halqa yo‘li came twice in one game), and places too close
+// to them (3% of the map's size: 1.2 km in Tashkent); after 40 tries it settles for anything
+// not shown yet. ok is false when the allowed providers have nothing here.
 func (m *Map) PickRound(rng *rand.Rand, allowed map[string]bool, used Used) (c Candidate, ok bool) {
 	type group struct {
 		idx    []int
@@ -45,6 +46,13 @@ func (m *Map) PickRound(rng *rand.Rand, allowed map[string]bool, used Used) (c C
 	// map iteration order is random; sort so a seed always gives the same game
 	slices.SortFunc(groups, func(a, b group) int { return a.idx[0] - b.idx[0] })
 
+	streets := map[int64]bool{}
+	for _, c := range m.Cands {
+		if c.StreetID != 0 && used.IDs[c.ID] {
+			streets[c.StreetID] = true
+		}
+	}
+
 	minGap := m.SizeKm * 0.03
 	var last Candidate
 	for try := 0; try < 40; try++ {
@@ -57,7 +65,7 @@ func (m *Map) PickRound(rng *rand.Rand, allowed map[string]bool, used Used) (c C
 			}
 		}
 		last = m.Cands[g.idx[rng.IntN(len(g.idx))]]
-		if far(last.Pos, used.Pos, minGap) {
+		if far(last.Pos, used.Pos, minGap) && !streets[last.StreetID] {
 			return last, true
 		}
 	}

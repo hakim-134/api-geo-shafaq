@@ -638,8 +638,13 @@ type Movement string
 
 // MyStreet defines model for MyStreet.
 type MyStreet struct {
+	At *LatLon `json:"at,omitempty"`
+
 	// BestKm The closest guess; none when no pin was placed.
 	BestKm *float64 `json:"bestKm,omitempty"`
+
+	// Heading That round's first heading, degrees from north.
+	Heading *float64 `json:"heading,omitempty"`
 
 	// Learned Guessed within 500 m at least once.
 	Learned bool `json:"learned"`
@@ -908,7 +913,10 @@ type RoomPlayer struct {
 // RoomResult defines model for RoomResult.
 type RoomResult struct {
 	Actual LatLon `json:"actual"`
-	N      int    `json:"n"`
+
+	// Heading Where the round's viewer looked first
+	Heading *float64 `json:"heading,omitempty"`
+	N       int      `json:"n"`
 
 	// Place "You were here": what the round teaches.
 	Place  PlaceInfo   `json:"place"`
@@ -1074,8 +1082,11 @@ type RoundResult struct {
 	Base *int `json:"base,omitempty"`
 
 	// GameOver This was the last round.
-	GameOver  *bool    `json:"gameOver,omitempty"`
-	Guess     *LatLon  `json:"guess,omitempty"`
+	GameOver *bool   `json:"gameOver,omitempty"`
+	Guess    *LatLon `json:"guess,omitempty"`
+
+	// Heading Where the round's viewer looked first, degrees from north (to open the place's panorama facing the same way).
+	Heading   *float64 `json:"heading,omitempty"`
 	HintsUsed int      `json:"hintsUsed"`
 	Km        *float64 `json:"km,omitempty"`
 

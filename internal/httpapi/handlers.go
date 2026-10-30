@@ -49,7 +49,9 @@ func (s *Server) GetReady(w http.ResponseWriter, r *http.Request) {
 func (s *Server) StartSession(w http.ResponseWriter, r *http.Request) {
 	u := userFrom(r.Context())
 	if u == nil {
-		if !s.allow(w, r, "guest:"+s.clientIP(r), 30, time.Hour) {
+		// per address: friends behind one Wi-Fi or one carrier's shared address are many
+		// players, so the limit only stops a script making guests by the thousand
+		if !s.allow(w, r, "guest:"+s.clientIP(r), 120, time.Hour) {
 			return
 		}
 		nu, token, err := s.players.NewGuest(r.Context(), r.UserAgent())

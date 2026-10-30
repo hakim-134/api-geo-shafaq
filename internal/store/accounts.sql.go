@@ -413,7 +413,11 @@ const myStreets = `-- name: MyStreets :many
 SELECT s.id, s.name_uz, s.name_ru,
        pl.name_uz AS place_uz, pl.name_ru AS place_ru, pl.name_en AS place_en,
        count(*)::int AS rounds,
-       coalesce(min(g.km), -1)::float8 AS best_km
+       coalesce(min(g.km), -1)::float8 AS best_km,
+       -- the closest round's real place and first heading: the street's panorama to open
+       ((array_agg(ST_Y(coalesce(r.actual, p.pos)) ORDER BY g.km NULLS LAST))[1])::float8 AS at_lat,
+       ((array_agg(ST_X(coalesce(r.actual, p.pos)) ORDER BY g.km NULLS LAST))[1])::float8 AS at_lon,
+       ((array_agg(r.heading ORDER BY g.km NULLS LAST))[1])::float8 AS heading
 FROM guesses g
 JOIN rounds r ON r.game_id = g.game_id AND r.n = g.n
 JOIN panoramas p ON p.id = r.panorama_id
@@ -433,6 +437,9 @@ type MyStreetsRow struct {
 	PlaceEn string
 	Rounds  int32
 	BestKm  float64
+	AtLat   float64
+	AtLon   float64
+	Heading float64
 }
 
 // Every street the player has been on: its district or city, how many rounds, and the closest
@@ -455,6 +462,9 @@ func (q *Queries) MyStreets(ctx context.Context, userID uuid.UUID) ([]MyStreetsR
 			&i.PlaceEn,
 			&i.Rounds,
 			&i.BestKm,
+			&i.AtLat,
+			&i.AtLon,
+			&i.Heading,
 		); err != nil {
 			return nil, err
 		}

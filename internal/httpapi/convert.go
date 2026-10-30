@@ -229,7 +229,7 @@ func resultOut(r *game.Result) oapi.RoundResult {
 	if r.Place.Metro != nil {
 		out.Place.Metro = &oapi.Metro{Name: text(r.Place.Metro.Name), Km: r.Place.Metro.Km}
 	}
-	gameOver, total := r.GameOver, r.Total
-	out.GameOver, out.Total = &gameOver, &total
+	gameOver, total, heading := r.GameOver, r.Total, r.Heading
+	out.GameOver, out.Total, out.Heading = &gameOver, &total, &heading
 	return out
 }

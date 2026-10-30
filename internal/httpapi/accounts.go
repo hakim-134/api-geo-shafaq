@@ -326,6 +326,8 @@ func (s *Server) ListMyStreets(w http.ResponseWriter, r *http.Request) {
 			km := row.BestKm
 			out.Streets[i].BestKm = &km
 		}
+		at, heading := oapi.LatLon{Lat: row.AtLat, Lon: row.AtLon}, row.Heading
+		out.Streets[i].At, out.Streets[i].Heading = &at, &heading
 	}
 	writeJSON(w, http.StatusOK, out)
 }

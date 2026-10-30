@@ -93,3 +93,19 @@ func TestPickKeepsDistance(t *testing.T) {
 		}
 	}
 }
+
+func TestPickAvoidsShownStreets(t *testing.T) {
+	m := testMap(0)
+	for i := range m.Cands {
+		m.Cands[i].StreetID = m.Cands[i].Group // group 1 is one long street, group 2 another
+	}
+	all := map[string]bool{"yandex": true, "demo": true}
+	first := m.Cands[0]
+	used := Used{IDs: map[int64]bool{first.ID: true}} // no positions: only the street keeps it away
+	rng := rand.New(rand.NewPCG(5, 5))
+	for range 50 {
+		if c, _ := m.PickRound(rng, all, used); c.StreetID == first.StreetID {
+			t.Fatalf("picked street %d again, with another street to show", c.StreetID)
+		}
+	}
+}

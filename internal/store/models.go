@@ -175,6 +175,11 @@ type Street struct {
 	NameRu  string
 }
 
+type StreetMerge struct {
+	FromUz *string
+	ToUz   *string
+}
+
 type TelegramLogin struct {
 	CodeHash    []byte
 	UserID      uuid.UUID

@@ -154,7 +154,11 @@ WHERE g.user_id = @user_id AND g.guessed_at IS NOT NULL AND p.street_id IS NOT N
 SELECT s.id, s.name_uz, s.name_ru,
        pl.name_uz AS place_uz, pl.name_ru AS place_ru, pl.name_en AS place_en,
        count(*)::int AS rounds,
-       coalesce(min(g.km), -1)::float8 AS best_km
+       coalesce(min(g.km), -1)::float8 AS best_km,
+       -- the closest round's real place and first heading: the street's panorama to open
+       ((array_agg(ST_Y(coalesce(r.actual, p.pos)) ORDER BY g.km NULLS LAST))[1])::float8 AS at_lat,
+       ((array_agg(ST_X(coalesce(r.actual, p.pos)) ORDER BY g.km NULLS LAST))[1])::float8 AS at_lon,
+       ((array_agg(r.heading ORDER BY g.km NULLS LAST))[1])::float8 AS heading
 FROM guesses g
 JOIN rounds r ON r.game_id = g.game_id AND r.n = g.n
 JOIN panoramas p ON p.id = r.panorama_id

@@ -59,7 +59,7 @@ func YandexRef(lat, lon float64) string {
 }
 
 // ImportV0 puts v0's pools into the library as Yandex panoramas: the 680 points all over the
-// country, and Tashkent's 185 main streets with their points and the metro stations. Places
+// country, and Tashkent's 177 main streets with their points and the metro stations. Places
 // must be imported first; they name the city the streets belong to.
 func ImportV0(ctx context.Context, pool *pgxpool.Pool) error {
 	var locs v0Locations

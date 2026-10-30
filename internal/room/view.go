@@ -62,10 +62,11 @@ type RoundView struct {
 }
 
 type ResultView struct {
-	N      int
-	Actual geo.Point
-	Place  places.Info
-	Scores []Score
+	N       int
+	Actual  geo.Point
+	Heading float64
+	Place   places.Info
+	Scores  []Score
 }
 
 // View is the room for one player (anyone may look: a page opened by a link before joining).
@@ -145,7 +146,7 @@ func (r *Room) view(id uuid.UUID) *View {
 		v.NextIn = &left
 	}
 	for _, d := range r.st.Done {
-		v.Results = append(v.Results, ResultView{N: d.Round.N, Actual: d.Round.Actual, Place: d.Place, Scores: d.Scores})
+		v.Results = append(v.Results, ResultView{N: d.Round.N, Actual: d.Round.Actual, Heading: d.Round.Heading, Place: d.Place, Scores: d.Scores})
 	}
 	if r.st.Rules.Endless() {
 		v.Max = len(r.st.Done) * score.Max

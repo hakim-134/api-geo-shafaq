@@ -1148,6 +1148,8 @@ components:
         rounds: { type: integer, description: Rounds played on this street. }
         bestKm: { type: number, format: double, description: The closest guess; none when no pin was placed. }
         learned: { type: boolean, description: Guessed within 500 m at least once. }
+        at: { $ref: "#/components/schemas/LatLon", description: "The real place of the player's closest round there." }
+        heading: { type: number, format: double, description: "That round's first heading, degrees from north." }
 
     MapBest:
       type: object
@@ -1528,6 +1530,7 @@ components:
       properties:
         "n": { type: integer }
         actual: { $ref: "#/components/schemas/LatLon" }
+        heading: { type: number, format: double, description: Where the round's viewer looked first, degrees from north. }
         place: { $ref: "#/components/schemas/PlaceInfo" }
         scores:
           type: array
@@ -1753,6 +1756,10 @@ components:
           type: boolean
           description: The guess came after the deadline and scored 0.
         place: { $ref: "#/components/schemas/PlaceInfo" }
+        heading:
+          type: number
+          format: double
+          description: Where the round's viewer looked first, degrees from north (to open the place's panorama facing the same way).
         gameOver: { type: boolean, description: This was the last round. }
         total: { type: integer, description: The game's total after this round. }
 

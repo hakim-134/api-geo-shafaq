@@ -129,6 +129,7 @@ type Result struct {
 	HintsUsed int
 	Late      bool
 	Place     places.Info
+	Heading   float64 // where the round's viewer looked first: the place's panorama opens so
 	GameOver  bool
 	Total     int
 }
@@ -261,6 +262,7 @@ func (s *Service) round(g *Game, r store.GameRoundsRow) (Round, error) {
 			Score:     int(deref(r.Score)),
 			HintsUsed: len(rd.Hints),
 			Late:      deref(r.Late),
+			Heading:   float64(r.Heading),
 			GameOver:  g.Rules.Last(int(r.N)),
 		}
 		if r.HasGuess {
@@ -783,7 +785,7 @@ func (s *Service) Guess(ctx context.Context, userID, id uuid.UUID, n int, pos *g
 		}
 		late := deadline != nil && now.After(deadline.Add(guessGrace))
 
-		res := &Result{Actual: actual, Guess: pos, HintsUsed: len(rd.Hints), Late: late}
+		res := &Result{Actual: actual, Guess: pos, HintsUsed: len(rd.Hints), Late: late, Heading: float64(row.Heading)}
 		params := store.SaveGuessParams{GameID: id, N: int32(n), UserID: userID, Late: late}
 		if pos != nil {
 			km := geo.DistanceKm(actual, *pos)
