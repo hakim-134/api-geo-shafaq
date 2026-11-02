@@ -166,6 +166,24 @@ func (q *Queries) PanoramaOpened(ctx context.Context, id int64) error {
 	return err
 }
 
+const rateHardness = `-- name: RateHardness :execrows
+UPDATE panoramas p
+SET hardness = 0.45 * least(coalesce((SELECT min(ST_Distance(p.pos::geography, m.pos::geography)) FROM pois m WHERE m.kind = 'metro'), 99999) / 4000, 1)
+             + 0.40 * least(coalesce((SELECT min(ST_Distance(p.pos::geography, ST_Centroid(c.geom)::geography)) FROM places c WHERE c.kind = 'city'), 99999) / 12000, 1)
+             + 0.15 * (p.street_id IS NULL)::int
+WHERE p.hardness IS NULL
+`
+
+// How hard a place is to guess, 0 to 1. Near a metro station, in the middle of a town, on a named
+// street: easy. Far from all that: hard. Later, how far players really guess there.
+func (q *Queries) RateHardness(ctx context.Context) (int64, error) {
+	result, err := q.db.Exec(ctx, rateHardness)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const retireOutsidePanoramas = `-- name: RetireOutsidePanoramas :execrows
 UPDATE panoramas SET status = 'rejected' WHERE place_ids = '{}' AND status = 'active'
 `

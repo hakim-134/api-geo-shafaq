@@ -44,7 +44,7 @@ var officials = []official{
 		desc:   [3]string{"Asosiy ko‘chalar", "Главные улицы", "Main streets"}, // a sign carries a name, not a slogan
 		places: []string{"toshkent"},
 		pick:   Pick{Group: "street", Pow: 0.75, SnapKm: 0.12, StreetsOnly: true},
-		rules:  rules.Easy,
+		rules:  rules.Default,
 	},
 	{
 		slug:   "tashkent",
@@ -52,7 +52,7 @@ var officials = []official{
 		desc:   [3]string{"Poytaxt ko‘chalari, boshlash uchun", "Улицы столицы, для начала", "The capital's streets, a good start"},
 		places: []string{"toshkent"},
 		pick:   Pick{Group: "district", Pow: 0.5, SnapKm: 1, JitterKm: 0.1},
-		rules:  rules.Easy,
+		rules:  rules.Default,
 		// one Tashkent on the home: "Toshkent ko‘chalari" (P1028 2.1)
 		unlisted: true,
 	},
@@ -63,7 +63,7 @@ var officials = []official{
 		// each city with the district around it: the suburbs are part of the visit, the villages are not
 		places: []string{"samarqand-shahri", "samarqand-tumani", "buxoro-shahri", "kogon-shahri", "kogon-tumani", "buxoro-tumani", "xiva-tumani", "shahrisabz-shahri"},
 		pick:   Pick{Group: "district", Pow: 0.5, SnapKm: 1, JitterKm: 0.1},
-		rules:  rules.Normal,
+		rules:  rules.Default,
 	},
 	{
 		slug:   "uzbekistan",
@@ -71,7 +71,7 @@ var officials = []official{
 		desc:   [3]string{"Toshkentdan Mo‘ynoqqacha", "От Ташкента до Муйнака", "From Tashkent to Moynaq"},
 		places: []string{"uzbekistan"},
 		pick:   Pick{Group: "region", Pow: 0.25, SnapKm: 1, JitterKm: 0.1},
-		rules:  rules.Normal,
+		rules:  rules.Default,
 	},
 }
 

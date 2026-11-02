@@ -45,6 +45,7 @@ SELECT p.id,
        ST_X(p.pos)::float8 AS lon,
        p.heading,
        p.street_id,
+       coalesce(p.hardness, 0.5)::float8 AS hardness,
        coalesce((SELECT pl.id FROM places pl
                   WHERE pl.id = ANY (p.place_ids) AND pl.kind IN ('district', 'city')
                   ORDER BY pl.size_km LIMIT 1), 0)::bigint AS district_id,

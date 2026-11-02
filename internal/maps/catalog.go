@@ -51,6 +51,7 @@ type Candidate struct {
 	provider.Pano
 	StreetID int64
 	Group    int64
+	Hardness float64 // how hard to guess, 0 to 1
 }
 
 // Shown is what the menu tells players about a map. Only the given providers count, so test
@@ -202,7 +203,7 @@ func (c *Catalog) load(ctx context.Context, slug string) (*Map, error) {
 		if _, ok := c.reg.Get(r.Provider); !ok {
 			continue // provider not enabled on this server
 		}
-		cand := Candidate{Pano: provider.Pano{ID: r.ID, Provider: r.Provider, Ref: r.Ref, Pos: geo.Point{Lat: r.Lat, Lon: r.Lon}, Heading: r.Heading}}
+		cand := Candidate{Pano: provider.Pano{ID: r.ID, Provider: r.Provider, Ref: r.Ref, Pos: geo.Point{Lat: r.Lat, Lon: r.Lon}, Heading: r.Heading}, Hardness: r.Hardness}
 		if r.StreetID != nil {
 			cand.StreetID = *r.StreetID
 		}

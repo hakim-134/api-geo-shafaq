@@ -149,7 +149,7 @@ func (f *fixture) tick(d time.Duration) {
 }
 
 func roomRules(rounds, timeSec int) *rules.Rules {
-	r := rules.Normal
+	r := rules.Default
 	r.Rounds = rounds
 	r.TimeSec = timeSec
 	r.Hints = rules.Hints{Count: 1, Per: rules.PerGame, Kind: rules.HintDistrict, Cost: 0.5}

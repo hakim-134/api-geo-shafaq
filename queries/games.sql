@@ -77,6 +77,16 @@ LEFT JOIN guesses g ON g.game_id = r.game_id AND g.n = r.n AND g.user_id = @user
 WHERE r.game_id = @game_id
 ORDER BY r.n;
 
+-- name: RoundCrowd :one
+-- How far other players guessed from this round's panorama, for the crowd circle: every game,
+-- rooms too; guessed and not late.
+SELECT coalesce(avg(g.km), 0)::float8 AS km, count(DISTINCT g.user_id)::int AS players
+FROM rounds me
+JOIN rounds r ON r.panorama_id = me.panorama_id
+JOIN guesses g ON g.game_id = r.game_id AND g.n = r.n
+WHERE me.game_id = @game_id AND me.n = @n
+  AND g.user_id <> @user_id AND g.guessed_at IS NOT NULL AND g.km IS NOT NULL AND NOT g.late;
+
 -- name: UpsertHints :exec
 INSERT INTO guesses (game_id, n, user_id, hints)
 VALUES (@game_id, @n, @user_id, @hints)

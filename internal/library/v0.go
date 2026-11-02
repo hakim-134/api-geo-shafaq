@@ -122,7 +122,11 @@ func Tag(ctx context.Context, q *store.Queries, all bool) error {
 	if err != nil {
 		return err
 	}
-	slog.Info("panoramas tagged with places", "tagged", n, "outside", out)
+	rated, err := q.RateHardness(ctx)
+	if err != nil {
+		return err
+	}
+	slog.Info("panoramas tagged with places", "tagged", n, "outside", out, "rated", rated)
 	return nil
 }
 

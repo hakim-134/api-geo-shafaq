@@ -333,6 +333,27 @@ func (e RoundFailedReason) Valid() bool {
 	}
 }
 
+// Defines values for RulesDifficulty.
+const (
+	Easy   RulesDifficulty = "easy"
+	Hard   RulesDifficulty = "hard"
+	Normal RulesDifficulty = "normal"
+)
+
+// Valid indicates whether the value is a known member of the RulesDifficulty enum.
+func (e RulesDifficulty) Valid() bool {
+	switch e {
+	case Easy:
+		return true
+	case Hard:
+		return true
+	case Normal:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ReportUserJSONBodyReason.
 const (
 	Cheating ReportUserJSONBodyReason = "cheating"
@@ -1081,6 +1102,15 @@ type RoundResult struct {
 	// Base The score before hints, when they took points (absent when they took none).
 	Base *int `json:"base,omitempty"`
 
+	// Crowd Other players on this panorama (solo games), when three or more guessed it.
+	Crowd *struct {
+		// Km The average distance of their guesses.
+		Km float64 `json:"km"`
+
+		// N How many other players.
+		N int `json:"n"`
+	} `json:"crowd,omitempty"`
+
 	// GameOver This was the last round.
 	GameOver *bool   `json:"gameOver,omitempty"`
 	Guess    *LatLon `json:"guess,omitempty"`
@@ -1108,8 +1138,11 @@ type RoundShown struct {
 
 // Rules One set of rules for solo games, rooms and challenges.
 type Rules struct {
-	Compass bool     `json:"compass"`
-	Hints   HintRule `json:"hints"`
+	Compass bool `json:"compass"`
+
+	// Difficulty How hard the places are to guess, and nothing else. Absent = any place.
+	Difficulty *RulesDifficulty `json:"difficulty,omitempty"`
+	Hints      HintRule         `json:"hints"`
 
 	// MapLabels City and metro names on the guess map.
 	MapLabels bool `json:"mapLabels"`
@@ -1132,6 +1165,9 @@ type Rules struct {
 	// TimeSec Seconds per round; 0 = no limit, otherwise at least 10.
 	TimeSec int `json:"timeSec"`
 }
+
+// RulesDifficulty How hard the places are to guess, and nothing else. Absent = any place.
+type RulesDifficulty string
 
 // Stats defines model for Stats.
 type Stats struct {

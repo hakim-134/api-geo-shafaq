@@ -107,8 +107,16 @@ func rulesOut(r rules.Rules) oapi.Rules {
 		Rounds: r.Rounds, TimeSec: r.TimeSec, Movement: oapi.Movement(r.Movement),
 		Hints:   hintRuleOut(r.Hints),
 		Compass: r.Compass, Providers: providers, ScoreScale: r.ScoreScale,
-		PanoLabels: r.PanoLabels, MapLabels: r.MapLabels,
+		PanoLabels: r.PanoLabels, MapLabels: r.MapLabels, Difficulty: difficultyOut(r.Difficulty),
 	}
+}
+
+func difficultyOut(d rules.Difficulty) *oapi.RulesDifficulty {
+	if d == rules.AnyPlace {
+		return nil
+	}
+	out := oapi.RulesDifficulty(d)
+	return &out
 }
 
 func hintRuleOut(h rules.Hints) oapi.HintRule {
@@ -128,12 +136,16 @@ func rulesIn(r *oapi.Rules) *rules.Rules {
 	if r.Hints.Kind != nil {
 		hints.Kind = rules.HintKind(*r.Hints.Kind)
 	}
-	return &rules.Rules{
+	out := &rules.Rules{
 		Rounds: r.Rounds, TimeSec: r.TimeSec, Movement: rules.Movement(r.Movement),
 		Hints:   hints,
 		Compass: r.Compass, Providers: r.Providers, ScoreScale: r.ScoreScale,
 		PanoLabels: r.PanoLabels, MapLabels: r.MapLabels,
 	}
+	if r.Difficulty != nil {
+		out.Difficulty = rules.Difficulty(*r.Difficulty)
+	}
+	return out
 }
 
 // gameOut describes the map as this game plays it: counted for the game's providers.
@@ -228,6 +240,12 @@ func resultOut(r *game.Result) oapi.RoundResult {
 	}
 	if r.Place.Metro != nil {
 		out.Place.Metro = &oapi.Metro{Name: text(r.Place.Metro.Name), Km: r.Place.Metro.Km}
+	}
+	if r.Crowd != nil {
+		out.Crowd = &struct {
+			Km float64 `json:"km"`
+			N  int     `json:"n"`
+		}{Km: r.Crowd.Km, N: r.Crowd.N}
 	}
 	gameOver, total, heading := r.GameOver, r.Total, r.Heading
 	out.GameOver, out.Total, out.Heading = &gameOver, &total, &heading

@@ -6,6 +6,7 @@ import (
 
 	"github.com/hakim-134/api-geo-shafaq/internal/geo"
 	"github.com/hakim-134/api-geo-shafaq/internal/provider"
+	"github.com/hakim-134/api-geo-shafaq/internal/rules"
 )
 
 // testMap: a big group of 100 panoramas on one street and a small one of 4, 10 km apart.
@@ -107,5 +108,31 @@ func TestPickAvoidsShownStreets(t *testing.T) {
 		if c, _ := m.PickRound(rng, all, used); c.StreetID == first.StreetID {
 			t.Fatalf("picked street %d again, with another street to show", c.StreetID)
 		}
+	}
+}
+
+func TestDifficultyPicksFromItsSliceOfTheMap(t *testing.T) {
+	m := &Map{SizeKm: 100, groups: map[int64][]int{}}
+	for i := range 10 {
+		m.groups[0] = append(m.groups[0], i)
+		m.Cands = append(m.Cands, Candidate{Pano: provider.Pano{ID: int64(i + 1), Provider: "demo"}, Hardness: float64(i) / 10})
+	}
+	all := map[string]bool{"demo": true}
+	rng := rand.New(rand.NewPCG(3, 1))
+	for range 50 {
+		if c, _ := m.PickAt(rng, all, Used{}, rules.Easy); c.Hardness > 0.4 {
+			t.Fatalf("easy got %v", c.Hardness)
+		}
+		if c, _ := m.PickAt(rng, all, Used{}, rules.Hard); c.Hardness < 0.5 {
+			t.Fatalf("hard got %v", c.Hardness)
+		}
+	}
+	// nothing left in the slice: any other place, never a refusal
+	used := Used{IDs: map[int64]bool{}}
+	for i := range 6 {
+		used.IDs[int64(i+1)] = true
+	}
+	if c, ok := m.PickAt(rng, all, used, rules.Easy); !ok || c.Hardness < 0.6 {
+		t.Fatalf("easy with the easy places used: %v %v", c.Hardness, ok)
 	}
 }

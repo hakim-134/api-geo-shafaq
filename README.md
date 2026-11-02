@@ -90,7 +90,8 @@ one program may read a bot's messages: the laptop and the server must not share 
 
 ## How a round works
 
-1. `POST /v1/games/{id}/rounds`: the server picks a panorama from the map's places (a street or
+1. `POST /v1/games/{id}/rounds`: the server picks a panorama from the map's places, first among
+   the rules' `difficulty`, a slice of this map's places by `panoramas.hardness` (a street or
    district first, weighted, so small places still come up; no repeats; not too close to an
    earlier round) and sends only what the viewer needs. Yandex gets a point to search near; our
    own and demo panoramas get an opaque image URL with no position.
@@ -101,7 +102,8 @@ one program may read a bot's messages: the laptop and the server must not share 
    the district (each named, its outline shown on the map), then a circle that holds the place,
    each next one half the last. A name that tells nothing on this map is skipped.
 4. `.../guess`: scored here, `5000 · e^(−10·d / (D·scale))`, D = the map's size. A guess more
-   than 3 s after the deadline scores 0.
+   than 3 s after the deadline scores 0. The result carries `crowd` (`km`, `n`): other players'
+   average on that panorama, rooms too, guessed and not late, when three or more played it.
 
 A game with `rounds: 0` is endless: it goes on until the player calls `/finish` (after any
 round); endless games stay out of the best score. `movement: move` plays as `nomove` where the
@@ -145,10 +147,11 @@ the state too: `shown`, `fail`, `hint`, `pin`, `guess` per round; `start`, `next
 
 ## Places
 
-`GET /v1/places/{slug}/map` draws a place's children for the place map (decision 0015 in the
-brief): one frame, Web Mercator with the longer side 1000 and y down, an SVG path and a point for
-the name per child; `?mark=a,b` adds other places as points (the historic cities' stars). The
-same for everyone, so it caches.
+`GET /v1/places/{slug}/map` draws a place's children for the place map (decisions 0015 and
+0016 in the brief): one frame, Web Mercator with the longer side 1000 and y down, an SVG path and a point for
+the name per child, simplified together (`ST_CoverageSimplify`) so neighbours share one border;
+`?mark=a,b` adds other places as points (the historic cities' stars). The same for everyone, so
+it caches.
 
 `GET /v1/places/{slug}` (start at `uzbekistan`) is the place picker: the place, where it is,
 and the places inside it, each with its panoramas on the players' providers and the player's

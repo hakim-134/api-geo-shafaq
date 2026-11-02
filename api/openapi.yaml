@@ -1238,6 +1238,10 @@ components:
             Allowed panorama providers; empty = the players' providers (PROVIDERS) that cover the
             place. Test providers (TEST_PROVIDERS, e.g. demo) play only when named here.
           items: { type: string }
+        difficulty:
+          type: string
+          enum: [easy, normal, hard]
+          description: How hard the places are to guess, and nothing else. Absent = any place.
         scoreScale:
           type: number
           format: double
@@ -1762,6 +1766,13 @@ components:
           description: Where the round's viewer looked first, degrees from north (to open the place's panorama facing the same way).
         gameOver: { type: boolean, description: This was the last round. }
         total: { type: integer, description: The game's total after this round. }
+        crowd:
+          description: Other players on this panorama (solo games), when three or more guessed it.
+          type: object
+          required: [km, n]
+          properties:
+            km: { type: number, format: double, description: The average distance of their guesses. }
+            n: { type: integer, description: How many other players. }
 
     PlaceInfo:
       description: '"You were here": what the round teaches.'

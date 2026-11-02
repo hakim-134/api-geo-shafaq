@@ -132,7 +132,17 @@ type Result struct {
 	Heading   float64 // where the round's viewer looked first: the place's panorama opens so
 	GameOver  bool
 	Total     int
+	Crowd     *Crowd // how other players did here, when enough of them played this panorama
 }
+
+// Crowd is other players on a round's panorama: the average distance of their guesses.
+type Crowd struct {
+	Km float64
+	N  int
+}
+
+// crowdMin is how many other players it takes: one or two are a person, not a crowd.
+const crowdMin = 3
 
 // Create starts a solo game on a map. r nil = the map's default rules.
 func (s *Service) Create(ctx context.Context, userID uuid.UUID, slug string, r *rules.Rules) (*Game, error) {
@@ -155,7 +165,8 @@ func (s *Service) Create(ctx context.Context, userID uuid.UUID, slug string, r *
 }
 
 // Prepare checks a map and rules for a new game, solo or in a room: the map exists, the
-// rules are valid (r nil = the map's own) and its panoramas are enough for them today.
+// rules are valid (r nil = the map's own) and it has panoramas today; a place with fewer than the
+// rules' rounds plays them all, a shorter game.
 func (s *Service) Prepare(ctx context.Context, slug string, r *rules.Rules) (*maps.Map, rules.Rules, error) {
 	m, err := s.Catalog.Get(ctx, slug)
 	if errors.Is(err, maps.ErrNotFound) {
@@ -178,15 +189,17 @@ func (s *Service) Prepare(ctx context.Context, slug string, r *rules.Rules) (*ma
 	if rs.Movement == rules.Move && !s.Reg.CanMove(allowed) {
 		rs.Movement = rules.NoMove // offered only where the panoramas can do it
 	}
-	need := max(rs.Rounds, 1) // an endless game needs one to start
-	if m.Count(allowed) < need {
+	have := m.Count(allowed)
+	if have == 0 {
 		return nil, rs, ErrNoPanorama
 	}
+	// a place with few panoramas plays them all: someone's home is worth a short game
+	rs.Rounds = min(rs.Rounds, have)
 	open, err := s.uncapped(ctx, allowed)
 	if err != nil {
 		return nil, rs, err
 	}
-	if m.Count(open) < need {
+	if m.Count(open) < max(rs.Rounds, 1) {
 		return nil, rs, ErrDailyCap
 	}
 	return m, rs, nil
@@ -473,9 +486,9 @@ func (s *Service) PickRound(ctx context.Context, m *maps.Map, rs rules.Rules, us
 		return Pick{}, err
 	}
 	r := rng(seed, n, salt)
-	c, ok := m.PickRound(r, open, used)
+	c, ok := m.PickAt(r, open, used, rs.Difficulty)
 	if !ok {
-		c, ok = m.PickRound(r, allowed, used)
+		c, ok = m.PickAt(r, allowed, used, rs.Difficulty)
 	}
 	if !ok {
 		return Pick{}, ErrNoPanorama
@@ -815,10 +828,22 @@ func (s *Service) Guess(ctx context.Context, userID, id uuid.UUID, n int, pos *g
 		out = res
 		return nil
 	})
-	if err == nil {
-		metrics.RoundsScored.Inc()
+	if err != nil {
+		return nil, err
 	}
-	return out, err
+	metrics.RoundsScored.Inc()
+	out.Crowd = s.crowd(ctx, userID, id, n)
+	return out, nil
+}
+
+// crowd is nil when too few others played the panorama, or when it can't be read: the result
+// stands without it.
+func (s *Service) crowd(ctx context.Context, userID, id uuid.UUID, n int) *Crowd {
+	row, err := store.New(s.Pool).RoundCrowd(ctx, store.RoundCrowdParams{GameID: id, N: int32(n), UserID: userID})
+	if err != nil || row.Players < crowdMin {
+		return nil
+	}
+	return &Crowd{Km: row.Km, N: int(row.Players)}
 }
 
 // Finish ends a game when the player says so: an endless one, after any round. A game

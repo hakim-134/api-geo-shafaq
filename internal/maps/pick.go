@@ -6,6 +6,7 @@ import (
 	"slices"
 
 	"github.com/hakim-134/api-geo-shafaq/internal/geo"
+	"github.com/hakim-134/api-geo-shafaq/internal/rules"
 )
 
 // Used is what earlier rounds of a game already showed.
@@ -20,6 +21,48 @@ type Used struct {
 // to them (3% of the map's size: 1.2 km in Tashkent); after 40 tries it settles for anything
 // not shown yet. ok is false when the allowed providers have nothing here.
 func (m *Map) PickRound(rng *rand.Rand, allowed map[string]bool, used Used) (c Candidate, ok bool) {
+	return m.pick(rng, allowed, used, nil)
+}
+
+// PickAt picks among the map's places of this difficulty first, then any: a map with few of
+// them still plays.
+func (m *Map) PickAt(rng *rand.Rand, allowed map[string]bool, used Used, d rules.Difficulty) (Candidate, bool) {
+	if d != rules.AnyPlace {
+		lo, hi := m.band(d)
+		c, ok := m.pick(rng, allowed, used, func(cand Candidate) bool {
+			return cand.Hardness >= lo && cand.Hardness <= hi
+		})
+		if ok {
+			return c, true
+		}
+	}
+	return m.pick(rng, allowed, used, nil)
+}
+
+// band is a difficulty's slice of this map's own places, easiest to hardest: on any map, big or
+// small, "Oson" is its easier places. The slices overlap, so each has enough to choose from.
+func (m *Map) band(d rules.Difficulty) (lo, hi float64) {
+	sorted := make([]float64, len(m.Cands))
+	for i, c := range m.Cands {
+		sorted[i] = c.Hardness
+	}
+	slices.Sort(sorted)
+	at := func(f float64) float64 {
+		if len(sorted) == 0 {
+			return 0
+		}
+		return sorted[int(f*float64(len(sorted)-1))]
+	}
+	switch d {
+	case rules.Easy:
+		return math.Inf(-1), at(0.4)
+	case rules.Hard:
+		return at(0.6), math.Inf(1)
+	}
+	return at(0.2), at(0.8)
+}
+
+func (m *Map) pick(rng *rand.Rand, allowed map[string]bool, used Used, fits func(Candidate) bool) (c Candidate, ok bool) {
 	type group struct {
 		idx    []int
 		weight float64
@@ -29,7 +72,7 @@ func (m *Map) PickRound(rng *rand.Rand, allowed map[string]bool, used Used) (c C
 	for _, idx := range m.groups {
 		var in []int
 		for _, i := range idx {
-			if allowed[m.Cands[i].Provider] && !used.IDs[m.Cands[i].ID] {
+			if allowed[m.Cands[i].Provider] && !used.IDs[m.Cands[i].ID] && (fits == nil || fits(m.Cands[i])) {
 				in = append(in, i)
 			}
 		}

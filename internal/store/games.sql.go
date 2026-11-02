@@ -412,6 +412,35 @@ func (q *Queries) ReplaceRoundPanorama(ctx context.Context, arg ReplaceRoundPano
 	return err
 }
 
+const roundCrowd = `-- name: RoundCrowd :one
+SELECT coalesce(avg(g.km), 0)::float8 AS km, count(DISTINCT g.user_id)::int AS players
+FROM rounds me
+JOIN rounds r ON r.panorama_id = me.panorama_id
+JOIN guesses g ON g.game_id = r.game_id AND g.n = r.n
+WHERE me.game_id = $1 AND me.n = $2
+  AND g.user_id <> $3 AND g.guessed_at IS NOT NULL AND g.km IS NOT NULL AND NOT g.late
+`
+
+type RoundCrowdParams struct {
+	GameID uuid.UUID
+	N      int32
+	UserID uuid.UUID
+}
+
+type RoundCrowdRow struct {
+	Km      float64
+	Players int32
+}
+
+// How far other players guessed from this round's panorama, for the crowd circle: every game,
+// rooms too; guessed and not late.
+func (q *Queries) RoundCrowd(ctx context.Context, arg RoundCrowdParams) (RoundCrowdRow, error) {
+	row := q.db.QueryRow(ctx, roundCrowd, arg.GameID, arg.N, arg.UserID)
+	var i RoundCrowdRow
+	err := row.Scan(&i.Km, &i.Players)
+	return i, err
+}
+
 const saveGuess = `-- name: SaveGuess :exec
 INSERT INTO guesses (game_id, n, user_id, pos, km, score, late, guessed_at)
 VALUES ($1, $2, $3,

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"regexp"
 	"testing"
 	"time"
 
@@ -81,7 +82,7 @@ func setup(t *testing.T) *fixture {
 }
 
 func testRules(providers ...string) *rules.Rules {
-	r := rules.Normal
+	r := rules.Default
 	r.Rounds = 2
 	r.TimeSec = 30
 	r.Hints = rules.Hints{Count: 1, Per: rules.PerGame, Cost: 0.5}
@@ -511,5 +512,115 @@ func TestMyStreets(t *testing.T) {
 	}
 	if other, _ := q.MyStreets(ctx, f.other); len(other) != 0 {
 		t.Fatalf("another player sees %d streets", len(other))
+	}
+}
+
+func TestCrowdIsOtherPlayersOnTheSamePanorama(t *testing.T) {
+	f := setup(t)
+	ctx := context.Background()
+	exec := func(sql string, args ...any) {
+		t.Helper()
+		if _, err := f.pool.Exec(ctx, sql, args...); err != nil {
+			t.Fatalf("%s: %v", sql, err)
+		}
+	}
+	g, err := f.svc.Create(ctx, f.user, "city", testRules("demo"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.svc.NextRound(ctx, f.user, g.ID); err != nil {
+		t.Fatal(err)
+	}
+	var pano int64
+	if err := f.pool.QueryRow(ctx, `SELECT panorama_id FROM rounds WHERE game_id = $1 AND n = 1`, g.ID).Scan(&pano); err != nil {
+		t.Fatal(err)
+	}
+
+	// someone else's round on this panorama, guessed km away
+	other := func(km float64, late bool) {
+		t.Helper()
+		u, err := store.New(f.pool).CreateUser(ctx, store.CreateUserParams{Name: "Ukki 01", Avatar: "🦉"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		o, err := f.svc.Create(ctx, u.ID, "city", testRules("demo"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := f.svc.NextRound(ctx, u.ID, o.ID); err != nil {
+			t.Fatal(err)
+		}
+		exec(`UPDATE rounds SET panorama_id = $1 WHERE game_id = $2 AND n = 1`, pano, o.ID)
+		exec(`INSERT INTO guesses (game_id, n, user_id, km, score, late, guessed_at) VALUES ($1, 1, $2, $3, 0, $4, now())`, o.ID, u.ID, km, late)
+	}
+	other(2, false)
+	other(4, false)
+	other(100, true) // late: not counted
+
+	if c := f.svc.crowd(ctx, f.user, g.ID, 1); c != nil {
+		t.Fatalf("two guesses are no crowd: %+v", c)
+	}
+	other(6, false)
+
+	if _, err := f.svc.Shown(ctx, f.user, g.ID, 1, nil); err != nil {
+		t.Fatal(err)
+	}
+	res, err := f.svc.Guess(ctx, f.user, g.ID, 1, &geo.Point{Lat: 41.3, Lon: 69.2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Crowd == nil || res.Crowd.Km != 4 || res.Crowd.N != 3 {
+		t.Fatalf("crowd = %+v, want 4 km of 3", res.Crowd)
+	}
+	// a repeated guess gets the same, and the player's own guess never counts
+	again, err := f.svc.Guess(ctx, f.user, g.ID, 1, &geo.Point{Lat: 41.3, Lon: 69.2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if again.Crowd == nil || again.Crowd.Km != 4 {
+		t.Fatalf("repeated crowd = %+v", again.Crowd)
+	}
+}
+
+func TestPlaceMapNeighboursShareOneBorder(t *testing.T) {
+	f := setup(t)
+	rows, err := store.New(f.pool).PlaceMapShapes(context.Background(), "toshkent")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 2 {
+		t.Fatalf("%d shapes, want the two districts", len(rows))
+	}
+	corners := func(d string) map[string]bool {
+		out := map[string]bool{}
+		for _, p := range regexp.MustCompile(`-?[\d.]+ -?[\d.]+`).FindAllString(d, -1) {
+			out[p] = true
+		}
+		return out
+	}
+	a, b := corners(rows[0].D), corners(rows[1].D)
+	shared := 0
+	for p := range a {
+		if b[p] {
+			shared++
+		}
+	}
+	if shared < 2 {
+		t.Fatalf("the border isn't the same line: %q and %q", rows[0].D, rows[1].D)
+	}
+}
+
+func TestAPlaceWithFewPanoramasPlaysThemAll(t *testing.T) {
+	f := setup(t)
+	ctx := context.Background()
+	if _, err := f.pool.Exec(ctx, `UPDATE panoramas SET status = 'gone' WHERE provider = 'demo' AND ref NOT IN ('demo-0', 'demo-1')`); err != nil {
+		t.Fatal(err)
+	}
+	g, err := f.svc.Create(ctx, f.user, "city", func() *rules.Rules { r := testRules("demo"); r.Rounds = 10; return r }())
+	if err != nil {
+		t.Fatalf("a place with two panoramas was refused: %v", err)
+	}
+	if g.Rules.Rounds != 2 {
+		t.Fatalf("rounds = %d, want the 2 it has", g.Rules.Rounds)
 	}
 }

@@ -13,6 +13,15 @@ SET place_ids = coalesce((SELECT array_agg(pl.id ORDER BY pl.size_km DESC)
                           FROM places pl WHERE ST_Contains(pl.geom, p.pos)), '{}')
 WHERE @retag::boolean OR p.place_ids = '{}';
 
+-- name: RateHardness :execrows
+-- How hard a place is to guess, 0 to 1. Near a metro station, in the middle of a town, on a named
+-- street: easy. Far from all that: hard. Later, how far players really guess there.
+UPDATE panoramas p
+SET hardness = 0.45 * least(coalesce((SELECT min(ST_Distance(p.pos::geography, m.pos::geography)) FROM pois m WHERE m.kind = 'metro'), 99999) / 4000, 1)
+             + 0.40 * least(coalesce((SELECT min(ST_Distance(p.pos::geography, ST_Centroid(c.geom)::geography)) FROM places c WHERE c.kind = 'city'), 99999) / 12000, 1)
+             + 0.15 * (p.street_id IS NULL)::int
+WHERE p.hardness IS NULL;
+
 -- name: RetireOutsidePanoramas :execrows
 -- Panoramas outside every place (outside the country) never come up.
 UPDATE panoramas SET status = 'rejected' WHERE place_ids = '{}' AND status = 'active';

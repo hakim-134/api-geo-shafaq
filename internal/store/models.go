@@ -98,6 +98,7 @@ type Panorama struct {
 	CheckedAt *time.Time
 	FailCount int32
 	CreatedAt time.Time
+	Hardness  *float32
 }
 
 type Place struct {

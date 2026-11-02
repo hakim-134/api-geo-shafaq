@@ -159,19 +159,20 @@ func (b *Boundary) Names() (uz, ru, en string) {
 // apostrophe for ʼ, towns without "shahri". Read through by hand on 2026-10-29 (P1028 4.2's
 // second review); migration 00008 put them in the database.
 var uzFixes = map[string]string{
-	"angren":            "Angren shahri",
-	"bekobod":           "Bekobod shahri",
-	"ohangaron":         "Ohangaron shahri",
-	"nurafshon-toytepa": "Nurafshon shahri",
-	"bozataw-rayoni":    "Bo‘zatov tumani",
-	"ellikqala-tumani":  "Ellikqalʼa tumani",
-	"tuproqqala-tumani": "Tuproqqalʼa tumani",
-	"kegeili-tumani":    "Kegeyli tumani",
-	"moynoq-tumani":     "Mo‘ynoq tumani",
-	"qoshkopir-tumani":  "Qo‘shko‘pir tumani",
-	"ugrut-tumani":      "Urgut tumani",
-	"showot-tumani":     "Shovot tumani",
-	"qonlikol-tumani":   "Qanliko‘l tumani",
+	"angren":              "Angren shahri",
+	"bekobod":             "Bekobod shahri",
+	"ohangaron":           "Ohangaron shahri",
+	"nurafshon-toytepa":   "Nurafshon shahri",
+	"bozataw-rayoni":      "Bo‘zatov tumani",
+	"ellikqala-tumani":    "Ellikqalʼa tumani",
+	"tuproqqala-tumani":   "Tuproqqalʼa tumani",
+	"kegeili-tumani":      "Kegeyli tumani",
+	"moynoq-tumani":       "Mo‘ynoq tumani",
+	"qoshkopir-tumani":    "Qo‘shko‘pir tumani",
+	"ugrut-tumani":        "Urgut tumani",
+	"showot-tumani":       "Shovot tumani",
+	"qonlikol-tumani":     "Qanliko‘l tumani",
+	"shayhontohur-tumani": "Shayxontohur tumani",
 }
 
 // FixUz is the place's Uzbek name, corrected where OpenStreetMap's is wrong.

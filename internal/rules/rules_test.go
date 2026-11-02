@@ -4,7 +4,7 @@ import "testing"
 
 func TestValidate(t *testing.T) {
 	known := []string{"yandex", "demo"}
-	for name, r := range map[string]Rules{"easy": Easy, "normal": Normal, "hard": Hard} {
+	for name, r := range map[string]Rules{"default": Default} {
 		if err := r.Validate(known); err != nil {
 			t.Errorf("preset %s is invalid", name)
 		}
@@ -23,7 +23,7 @@ func TestValidate(t *testing.T) {
 		"unknown provider": func(r *Rules) { r.Providers = []string{"google"} },
 	}
 	for name, change := range bad {
-		r := Normal
+		r := Default
 		change(&r)
 		if r.Validate(known) == nil {
 			t.Errorf("%s: accepted", name)
@@ -43,7 +43,7 @@ func TestHintsLeft(t *testing.T) {
 }
 
 func TestEndless(t *testing.T) {
-	r := Normal
+	r := Default
 	r.Rounds = 0
 	if r.Validate([]string{"yandex"}) != nil || !r.Endless() || r.Last(100) {
 		t.Error("endless games: valid, and no round is the last")

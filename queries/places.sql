@@ -84,12 +84,19 @@ SELECT slug, ST_AsGeoJSON(geom_simple, 4)::text AS geojson, outline_svg FROM pla
 -- name: PlaceMapShapes :many
 -- A place's children drawn in one frame, for the place map (P1028 4.1): Web Mercator, the
 -- longer side 1000 wide, y down (ST_AsSVG turns y over), as SVG paths, each with a point
--- well inside it for its name. x0, y1 and k place other points in the same frame.
-WITH kids AS (
-    SELECT c.slug, ST_Transform(c.geom_simple, 3857) AS g
+-- well inside it for its name. x0, y1 and k place other points in the same frame. Simplified
+-- together as a coverage, by about a frame's unit, so neighbours share one border.
+WITH raw AS (
+    SELECT c.slug, ST_Transform(c.geom, 3857) AS g
     FROM places c
     JOIN places p ON p.id = c.parent_id
     WHERE p.slug = @slug AND c.geom_simple IS NOT NULL
+), unit AS (
+    SELECT greatest(ST_XMax(e) - ST_XMin(e), ST_YMax(e) - ST_YMin(e)) / 1000 AS u
+    FROM (SELECT ST_Extent(g) AS e FROM raw) x
+), kids AS (
+    SELECT raw.slug, ST_CoverageSimplify(raw.g, unit.u * 1.5) OVER () AS g
+    FROM raw CROSS JOIN unit
 ), box AS (
     SELECT ST_XMin(e) AS x0, ST_YMax(e) AS y1, ST_XMax(e) - ST_XMin(e) AS w, ST_YMax(e) - ST_YMin(e) AS h
     FROM (SELECT ST_Extent(g) AS e FROM kids) x

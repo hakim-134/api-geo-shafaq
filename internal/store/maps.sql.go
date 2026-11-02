@@ -136,6 +136,7 @@ SELECT p.id,
        ST_X(p.pos)::float8 AS lon,
        p.heading,
        p.street_id,
+       coalesce(p.hardness, 0.5)::float8 AS hardness,
        coalesce((SELECT pl.id FROM places pl
                   WHERE pl.id = ANY (p.place_ids) AND pl.kind IN ('district', 'city')
                   ORDER BY pl.size_km LIMIT 1), 0)::bigint AS district_id,
@@ -164,6 +165,7 @@ type MapCandidatesRow struct {
 	Lon        float64
 	Heading    *float32
 	StreetID   *int64
+	Hardness   float64
 	DistrictID int64
 	RegionID   int64
 }
@@ -187,6 +189,7 @@ func (q *Queries) MapCandidates(ctx context.Context, arg MapCandidatesParams) ([
 			&i.Lon,
 			&i.Heading,
 			&i.StreetID,
+			&i.Hardness,
 			&i.DistrictID,
 			&i.RegionID,
 		); err != nil {

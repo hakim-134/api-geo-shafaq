@@ -54,7 +54,7 @@ func (c *Catalog) makePlaceMap(ctx context.Context, slug string) error {
 	if p.Parent != nil {
 		top = p.Parent.Name
 	}
-	rulesJSON, _ := json.Marshal(rules.Normal)
+	rulesJSON, _ := json.Marshal(rules.Default)
 	pickJSON, _ := json.Marshal(PlacePick(p))
 	id, err := c.q.UpsertPlaceMap(ctx, store.UpsertPlaceMapParams{
 		Slug: PlaceMap(slug), NameUz: p.Name.Uz, NameRu: p.Name.Ru, NameEn: p.Name.En,

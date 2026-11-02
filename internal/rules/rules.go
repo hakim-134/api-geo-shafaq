@@ -40,16 +40,28 @@ type Hints struct {
 	Cost  float64  `json:"cost"` // share of the round score each hint takes
 }
 
+// Difficulty is how hard the places are to guess, and nothing else: hints, the map and movement
+// are the player's own (the owner, 2026-11-02).
+type Difficulty string
+
+const (
+	AnyPlace Difficulty = "" // games from before it
+	Easy     Difficulty = "easy"
+	Normal   Difficulty = "normal"
+	Hard     Difficulty = "hard"
+)
+
 type Rules struct {
-	Rounds     int      `json:"rounds"`  // 0 = endless: the player ends the game
-	TimeSec    int      `json:"timeSec"` // 0 = no limit
-	Movement   Movement `json:"movement"`
-	Hints      Hints    `json:"hints"`
-	Compass    bool     `json:"compass"`
-	Providers  []string `json:"providers"` // empty = any
-	ScoreScale float64  `json:"scoreScale"`
-	PanoLabels bool     `json:"panoLabels"`
-	MapLabels  bool     `json:"mapLabels"`
+	Rounds     int        `json:"rounds"`  // 0 = endless: the player ends the game
+	TimeSec    int        `json:"timeSec"` // 0 = no limit
+	Movement   Movement   `json:"movement"`
+	Hints      Hints      `json:"hints"`
+	Compass    bool       `json:"compass"`
+	Providers  []string   `json:"providers"` // empty = any
+	ScoreScale float64    `json:"scoreScale"`
+	PanoLabels bool       `json:"panoLabels"`
+	MapLabels  bool       `json:"mapLabels"`
+	Difficulty Difficulty `json:"difficulty,omitempty"`
 }
 
 const (
@@ -72,6 +84,7 @@ func (r Rules) Validate(known []string) error {
 		r.Hints.Kind != HintAuto && r.Hints.Kind != HintRegion && r.Hints.Kind != HintDistrict && r.Hints.Kind != HintCircle,
 		r.Hints.Cost < 0 || r.Hints.Cost > 1,
 		r.ScoreScale < 0.25 || r.ScoreScale > 4,
+		r.Difficulty != AnyPlace && r.Difficulty != Easy && r.Difficulty != Normal && r.Difficulty != Hard,
 		len(r.Providers) > len(known):
 		return ErrInvalid
 	}
@@ -99,21 +112,9 @@ func (r Rules) HintsLeft(inRound, inGame int) int {
 	return max(r.Hints.Count-used, 0)
 }
 
-// The v0 difficulties, kept as presets for the menu.
-var (
-	Easy = Rules{
-		Rounds: 5, Movement: Move, Compass: true, Providers: []string{},
-		Hints:      Hints{Count: 1, Per: PerRound, Kind: HintDistrict, Cost: 0},
-		ScoreScale: 2, PanoLabels: true, MapLabels: true,
-	}
-	Normal = Rules{
-		Rounds: 5, Movement: Move, Compass: true, Providers: []string{},
-		Hints:      Hints{Count: 1, Per: PerRound, Kind: HintRegion, Cost: 0.2},
-		ScoreScale: 1, MapLabels: true,
-	}
-	Hard = Rules{
-		Rounds: 5, Movement: Move, Compass: true, Providers: []string{},
-		Hints:      Hints{Count: 0, Per: PerRound, Kind: HintCircle},
-		ScoreScale: 0.6,
-	}
-)
+// Default is a map's own rules, for a game that brings none.
+var Default = Rules{
+	Rounds: 5, Movement: Move, Compass: true, Providers: []string{},
+	Hints:      Hints{Count: 1, Per: PerRound, Kind: HintRegion, Cost: 0.2},
+	ScoreScale: 1, MapLabels: true,
+}
