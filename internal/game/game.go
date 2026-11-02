@@ -80,6 +80,7 @@ type Game struct {
 	Rounds     []Round
 	RoomCode   *string    // a room game: the room's code
 	RoomGame   *uuid.UUID // and the room game, shared by every player's row of it
+	Challenge  *string    // a challenge's code: its rounds are fixed, its players compared
 }
 
 // Max is the best possible total: of the rounds played so far, in an endless game.
@@ -231,7 +232,7 @@ func (s *Service) load(ctx context.Context, q *store.Queries, row store.Game, wi
 	g := &Game{
 		ID: row.ID, UserID: row.UserID, Map: m, Status: row.Status, StartedAt: row.StartedAt,
 		FinishedAt: row.FinishedAt, Total: int(row.Total), HintsUsed: int(row.HintsUsed),
-		RoomCode: row.RoomCode, RoomGame: row.RoomGame,
+		RoomCode: row.RoomCode, RoomGame: row.RoomGame, Challenge: row.Challenge,
 	}
 	if err := json.Unmarshal(row.Rules, &g.Rules); err != nil {
 		return nil, fmt.Errorf("game %s rules: %w", row.ID, err)
@@ -391,7 +392,15 @@ func (s *Service) NextRound(ctx context.Context, userID, id uuid.UUID) (*Round, 
 		if err != nil {
 			return err
 		}
-		c, near, heading, err := s.pick(ctx, q, g, seed, n, 0, nil)
+		var c maps.Candidate
+		var near geo.Point
+		var heading float64
+		snapKm := g.Map.Pick.SnapKm
+		if g.Challenge != nil {
+			c, near, heading, snapKm, err = challengeRound(ctx, q, *g.Challenge, n)
+		} else {
+			c, near, heading, err = s.pick(ctx, q, g, seed, n, 0, nil)
+		}
 		if errors.Is(err, ErrNoPanorama) && g.Rules.Endless() && n > 1 {
 			// an endless game that has shown every panorama of its map is done
 			if err := q.FinishGame(ctx, id); err != nil {
@@ -404,7 +413,7 @@ func (s *Service) NextRound(ctx context.Context, userID, id uuid.UUID) (*Round, 
 		}
 		err = q.CreateRound(ctx, store.CreateRoundParams{
 			GameID: id, N: int32(n), PanoramaID: c.ID, Provider: c.Provider,
-			NearLat: near.Lat, NearLon: near.Lon, SnapKm: g.Map.Pick.SnapKm, Heading: float32(heading),
+			NearLat: near.Lat, NearLon: near.Lon, SnapKm: snapKm, Heading: float32(heading),
 			CreatedAt: s.now(),
 		})
 		if err != nil {
@@ -412,7 +421,7 @@ func (s *Service) NextRound(ctx context.Context, userID, id uuid.UUID) (*Round, 
 		}
 		p, _ := s.Reg.Get(c.Provider)
 		out = &Round{
-			N: n, View: p.View(c.Pano, near, g.Map.Pick.SnapKm, heading),
+			N: n, View: p.View(c.Pano, near, snapKm, heading),
 			HintsLeft: g.Rules.HintsLeft(0, g.HintsUsed), Hints: []Hint{},
 		}
 		counted = c.Provider
@@ -463,6 +472,15 @@ func (s *Service) pick(ctx context.Context, q *store.Queries, g *Game, seed int6
 	}
 	if skip != nil {
 		used.IDs[*skip] = true
+	}
+	if g.Challenge != nil { // a swap in a challenge: not a street that is still to come
+		fixed, err := q.ChallengeRounds(ctx, *g.Challenge)
+		if err != nil {
+			return maps.Candidate{}, geo.Point{}, 0, err
+		}
+		for _, r := range fixed {
+			used.IDs[r.PanoramaID] = true
+		}
 	}
 	p, err := s.PickRound(ctx, g.Map, g.Rules, used, seed, n, salt)
 	return p.Cand, p.Near, p.Heading, err
@@ -839,6 +857,9 @@ func (s *Service) Guess(ctx context.Context, userID, id uuid.UUID, n int, pos *g
 // crowd is nil when too few others played the panorama, or when it can't be read: the result
 // stands without it.
 func (s *Service) crowd(ctx context.Context, userID, id uuid.UUID, n int) *Crowd {
+	if c := s.challengeCrowd(ctx, id, n); c != nil {
+		return c
+	}
 	row, err := store.New(s.Pool).RoundCrowd(ctx, store.RoundCrowdParams{GameID: id, N: int32(n), UserID: userID})
 	if err != nil || row.Players < crowdMin {
 		return nil

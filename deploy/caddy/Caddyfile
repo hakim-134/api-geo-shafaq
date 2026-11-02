@@ -3,15 +3,27 @@
 # change there, not here.
 
 {$WEB_DOMAIN} {
-	root * /srv/web
 	encode zstd gzip
-	# built files carry a hash in their name: cache them for a year; the rest always revalidates
-	@immutable path /_app/immutable/*
-	header @immutable Cache-Control "public, max-age=31536000, immutable"
-	header ?Cache-Control "no-cache"
-	# a single-page app: unknown paths get index.html
-	try_files {path} /index.html
-	file_server
+	# a challenge's link: Telegram and the like read its card (title, text, picture) from the API,
+	# because the app's own page is empty until a browser runs it. Players get the app, below.
+	@preview {
+		path_regexp challenge ^/c/([A-Za-z0-9]{6})$
+		header_regexp User-Agent (?i)(TelegramBot|Twitterbot|facebookexternalhit|WhatsApp|Discordbot|Slackbot|vkShare|LinkedInBot)
+	}
+	handle @preview {
+		rewrite * /v1/challenges/{re.challenge.1}/card
+		reverse_proxy api:8131
+	}
+	handle {
+		root * /srv/web
+		# built files carry a hash in their name: cache them for a year; the rest always revalidates
+		@immutable path /_app/immutable/*
+		header @immutable Cache-Control "public, max-age=31536000, immutable"
+		header ?Cache-Control "no-cache"
+		# a single-page app: unknown paths get index.html
+		try_files {path} /index.html
+		file_server
+	}
 }
 
 {$API_DOMAIN} {

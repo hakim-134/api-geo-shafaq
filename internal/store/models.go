@@ -11,6 +11,27 @@ import (
 	"github.com/google/uuid"
 )
 
+type Challenge struct {
+	Code      string
+	MapID     int64
+	Rules     json.RawMessage
+	SizeKm    float64
+	Seed      int64
+	Source    uuid.UUID
+	CreatedBy uuid.UUID
+	CreatedAt time.Time
+}
+
+type ChallengeRound struct {
+	Challenge  string
+	N          int32
+	PanoramaID int64
+	Provider   string
+	Near       interface{}
+	SnapKm     float64
+	Heading    float32
+}
+
 type Game struct {
 	ID         uuid.UUID
 	UserID     uuid.UUID
@@ -27,6 +48,7 @@ type Game struct {
 	Played     int32
 	RoomCode   *string
 	RoomGame   *uuid.UUID
+	Challenge  *string
 }
 
 type Guess struct {

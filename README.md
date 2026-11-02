@@ -41,7 +41,8 @@ container, migrations at start, then the worker and the API on :8131).
 | `cmd/worker` | background jobs (River, in Postgres): Yandex usage warning, cleanup; the players' Telegram bot |
 | `cmd/roomsim` | plays a live room with many players against a running API (`go run ./cmd/roomsim`); redeploy meanwhile and the room should just finish |
 | `cmd/tools` | `migrate`, `places`, `v0`, `demo`, `maps`, `tag`, `stats`, `google`, `setup`; `reports`, `ban`, `unban` (moderation) |
-| `internal/game` | solo games: round picking, the clock, hints, scoring |
+| `internal/game` | solo games: round picking, the clock, hints, scoring; challenges (`challenge.go`): fixed panoramas, one try each, a leaderboard |
+| `internal/card` | draws a challenge's picture for link previews (`card.png`), in the game's fonts |
 | `internal/room` | live rooms: the room in memory, saved to Valkey after every change; each player's rounds saved as their own game |
 | `internal/maps` | maps: the official four, and every place's own map (`place-<slug>`, made the first time someone picks the place); the round picker |
 | `internal/provider` | the panorama providers behind one interface: `yandex`, `google`, `demo`. `PROVIDERS` are what players get (and what the menu counts); `TEST_PROVIDERS` play only in games that name them; `DAILY_CAPS` are each one's daily budget |

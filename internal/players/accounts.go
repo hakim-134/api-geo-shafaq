@@ -153,6 +153,7 @@ func (s *Service) merge(ctx context.Context, keep, other uuid.UUID) error {
 			q.MergeIdentities(ctx, store.MergeIdentitiesParams{UserID: keep, OtherID: other}),
 			q.MergeSessions(ctx, store.MergeSessionsParams{UserID: keep, OtherID: other}),
 			q.MergeMaps(ctx, store.MergeMapsParams{UserID: &keep, OtherID: &other}),
+			q.MergeChallenges(ctx, store.MergeChallengesParams{UserID: keep, OtherID: other}),
 			q.MergeBan(ctx, store.MergeBanParams{UserID: keep, OtherID: other}),
 		)
 		if err != nil {

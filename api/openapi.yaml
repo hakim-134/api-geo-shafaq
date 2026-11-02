@@ -19,6 +19,7 @@ tags:
   - name: accounts
   - name: maps
   - name: games
+  - name: challenges
   - name: rooms
 
 paths:
@@ -108,6 +109,11 @@ paths:
       tags: [accounts]
       operationId: listMyStreets
       summary: The Tashkent streets the player has been on, learned ones marked, closest guess first.
+      parameters:
+        - name: place
+          in: query
+          description: Only the rounds inside this place (a tumani's streets on "my map").
+          schema: { type: string }
       responses:
         "200":
           description: The streets
@@ -626,6 +632,88 @@ paths:
         "404": { $ref: "#/components/responses/Error" }
         "409": { $ref: "#/components/responses/Error" }
 
+  /v1/games/{gameId}/challenge:
+    post:
+      tags: [challenges]
+      operationId: createChallenge
+      summary: The link to challenge friends on a finished game's streets. The same game gives the same link.
+      parameters:
+        - $ref: "#/components/parameters/GameId"
+      responses:
+        "201":
+          description: The challenge
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Challenge" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
+  /v1/challenges/{code}:
+    get:
+      tags: [challenges]
+      operationId: getChallenge
+      summary: A challenge and its leaderboard, with the caller's own game when there is one.
+      parameters:
+        - $ref: "#/components/parameters/ChallengeCode"
+      responses:
+        "200":
+          description: The challenge
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Challenge" }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /v1/challenges/{code}/play:
+    post:
+      tags: [challenges]
+      operationId: playChallenge
+      summary: The player's game of a challenge. One each - a second call gives the same game.
+      parameters:
+        - $ref: "#/components/parameters/ChallengeCode"
+      responses:
+        "200":
+          description: The game
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Game" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "429": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+
+  /v1/challenges/{code}/card:
+    get:
+      tags: [challenges]
+      operationId: getChallengeCard
+      summary: The page Telegram and other link previews read - its title, text and picture.
+      parameters:
+        - $ref: "#/components/parameters/ChallengeCode"
+      responses:
+        "200":
+          description: A small HTML page
+          content:
+            text/html:
+              schema: { type: string }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /v1/challenges/{code}/card.png:
+    get:
+      tags: [challenges]
+      operationId: getChallengeCardImage
+      summary: The picture of a link preview, 1200×630.
+      parameters:
+        - $ref: "#/components/parameters/ChallengeCode"
+      responses:
+        "200":
+          description: A PNG
+          content:
+            image/png:
+              schema: { type: string, format: binary }
+        "404": { $ref: "#/components/responses/Error" }
+
   /v1/rooms:
     post:
       tags: [rooms]
@@ -946,6 +1034,11 @@ components:
       in: path
       required: true
       schema: { type: integer, minimum: 1 }
+    ChallengeCode:
+      name: code
+      in: path
+      required: true
+      schema: { type: string, pattern: "^[A-Za-z0-9]{6}$" }
     RoomCode:
       name: code
       in: path
@@ -1593,6 +1686,41 @@ components:
       type: string
       enum: [playing, finished, abandoned]
 
+    Challenge:
+      type: object
+      required: [code, map, rules, rounds, by, players, board]
+      properties:
+        code: { type: string }
+        map: { $ref: "#/components/schemas/MapSummary" }
+        rules: { $ref: "#/components/schemas/Rules" }
+        rounds: { type: integer }
+        by: { $ref: "#/components/schemas/PublicUser", description: Who sent it. }
+        players: { type: integer, description: Everyone who finished it. }
+        board:
+          type: array
+          description: The leaderboard's top, best first, and the caller's row wherever it stands.
+          items: { $ref: "#/components/schemas/ChallengeRow" }
+        you: { $ref: "#/components/schemas/ChallengeYou" }
+
+    ChallengeRow:
+      type: object
+      required: [place, player, total, game]
+      properties:
+        place: { type: integer, description: Equal scores share a place. }
+        player: { $ref: "#/components/schemas/PublicUser" }
+        total: { type: integer }
+        game: { type: string, format: uuid }
+        hints: { type: integer, description: Hints taken, when they cost points. }
+
+    ChallengeYou:
+      type: object
+      required: [game, status, total]
+      properties:
+        game: { type: string, format: uuid }
+        status: { $ref: "#/components/schemas/GameStatus" }
+        total: { type: integer }
+        place: { type: integer, description: Once finished. }
+
     Game:
       type: object
       required: [id, map, rules, status, startedAt, total, max, rounds, player]
@@ -1615,6 +1743,9 @@ components:
           items: { $ref: "#/components/schemas/Round" }
         room:
           $ref: "#/components/schemas/RoomTable"
+        challenge:
+          type: string
+          description: The code of the challenge this game is part of.
 
     GamePage:
       type: object

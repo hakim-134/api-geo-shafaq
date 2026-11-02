@@ -336,6 +336,20 @@ func (q *Queries) MergeBan(ctx context.Context, arg MergeBanParams) error {
 	return err
 }
 
+const mergeChallenges = `-- name: MergeChallenges :exec
+UPDATE challenges SET created_by = $1 WHERE created_by = $2
+`
+
+type MergeChallengesParams struct {
+	UserID  uuid.UUID
+	OtherID uuid.UUID
+}
+
+func (q *Queries) MergeChallenges(ctx context.Context, arg MergeChallengesParams) error {
+	_, err := q.db.Exec(ctx, mergeChallenges, arg.UserID, arg.OtherID)
+	return err
+}
+
 const mergeGames = `-- name: MergeGames :exec
 
 UPDATE games SET user_id = $1 WHERE user_id = $2
@@ -424,9 +438,16 @@ JOIN panoramas p ON p.id = r.panorama_id
 JOIN streets s ON s.id = p.street_id
 JOIN places pl ON pl.id = s.place_id
 WHERE g.user_id = $1 AND g.guessed_at IS NOT NULL
+  AND ($2::text IS NULL
+       OR (SELECT x.id FROM places x WHERE x.slug = $2) = ANY (p.place_ids))
 GROUP BY s.id, pl.id
 ORDER BY min(g.km) NULLS LAST, s.name_uz
 `
+
+type MyStreetsParams struct {
+	UserID uuid.UUID
+	Place  *string
+}
 
 type MyStreetsRow struct {
 	ID      int64
@@ -443,9 +464,10 @@ type MyStreetsRow struct {
 }
 
 // Every street the player has been on: its district or city, how many rounds, and the closest
-// guess (-1 when every round there went without a pin). Closest first.
-func (q *Queries) MyStreets(ctx context.Context, userID uuid.UUID) ([]MyStreetsRow, error) {
-	rows, err := q.db.Query(ctx, myStreets, userID)
+// guess (-1 when every round there went without a pin). Closest first. With @place only the rounds
+// inside that place, as its progress counts them (a long street runs through several tumanlar).
+func (q *Queries) MyStreets(ctx context.Context, arg MyStreetsParams) ([]MyStreetsRow, error) {
+	rows, err := q.db.Query(ctx, myStreets, arg.UserID, arg.Place)
 	if err != nil {
 		return nil, err
 	}

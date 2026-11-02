@@ -153,7 +153,7 @@ func gameOut(g *game.Game, reg *provider.Registry, tree *places.Tree, player oap
 	out := oapi.Game{
 		Id: g.ID, Player: player, Map: mapSummary(g.Map, reg.Allowed(g.Rules.Providers), reg, placeView{tree: tree}), Rules: rulesOut(g.Rules), Status: oapi.GameStatus(g.Status),
 		StartedAt: g.StartedAt, FinishedAt: g.FinishedAt, Total: g.Total, Max: g.Max(),
-		Rounds: make([]oapi.Round, 0, len(g.Rounds)),
+		Rounds: make([]oapi.Round, 0, len(g.Rounds)), Challenge: g.Challenge,
 	}
 	if g.Rules.Hints.Per == rules.PerGame {
 		left := g.HintsLeft()

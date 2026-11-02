@@ -175,3 +175,14 @@ func (s *Server) clientIP(r *http.Request) string {
 	}
 	return host
 }
+
+// site is the game's own address, for links the API hands out: the first origin without a port
+// pattern. Empty on the laptop, where the pages are at whatever address the phone used.
+func (o Origins) site() string {
+	for _, origin := range o {
+		if !strings.Contains(origin, "*") {
+			return strings.TrimRight(origin, "/")
+		}
+	}
+	return ""
+}

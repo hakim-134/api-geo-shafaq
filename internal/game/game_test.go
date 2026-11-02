@@ -489,7 +489,7 @@ func TestMyStreets(t *testing.T) {
 	playRound(t, f, g.ID, 2)
 
 	q := store.New(f.pool)
-	rows, err := q.MyStreets(ctx, f.user)
+	rows, err := q.MyStreets(ctx, store.MyStreetsParams{UserID: f.user})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -510,8 +510,25 @@ func TestMyStreets(t *testing.T) {
 	if int(sp.Seen) != len(rows) {
 		t.Fatalf("progress says %d streets seen, the list has %d", sp.Seen, len(rows))
 	}
-	if other, _ := q.MyStreets(ctx, f.other); len(other) != 0 {
+	if other, _ := q.MyStreets(ctx, store.MyStreetsParams{UserID: f.other}); len(other) != 0 {
 		t.Fatalf("another player sees %d streets", len(other))
+	}
+	// my map: a district's streets are the rounds inside it, and they add up to all of them
+	inPlace := 0
+	for _, slug := range []string{"west", "east"} {
+		in, err := q.MyStreets(ctx, store.MyStreetsParams{UserID: f.user, Place: &slug})
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, r := range in {
+			inPlace += int(r.Rounds)
+			if want := map[string]string{"west": "G‘arb ko‘chasi", "east": "Sharq ko‘chasi"}[slug]; r.NameUz != want {
+				t.Fatalf("%s shows %q", slug, r.NameUz)
+			}
+		}
+	}
+	if inPlace != 2 {
+		t.Fatalf("the districts hold %d rounds, want 2", inPlace)
 	}
 }
 
@@ -622,5 +639,186 @@ func TestAPlaceWithFewPanoramasPlaysThemAll(t *testing.T) {
 	}
 	if g.Rules.Rounds != 2 {
 		t.Fatalf("rounds = %d, want the 2 it has", g.Rules.Rounds)
+	}
+}
+
+// playAll plays every round of a game by a player, guessing at pos, and returns the panoramas.
+func playAll(t *testing.T, f *fixture, user, id uuid.UUID, rounds int, pos geo.Point) []int64 {
+	t.Helper()
+	ctx := context.Background()
+	for n := 1; n <= rounds; n++ {
+		if _, err := f.svc.NextRound(ctx, user, id); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := f.svc.Shown(ctx, user, id, n, nil); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := f.svc.Guess(ctx, user, id, n, &pos); err != nil {
+			t.Fatal(err)
+		}
+	}
+	rows, err := store.New(f.pool).GameRounds(ctx, store.GameRoundsParams{GameID: id, UserID: user})
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := make([]int64, len(rows))
+	for i, r := range rows {
+		out[i] = r.PanoramaID
+	}
+	return out
+}
+
+func TestChallengeIsTheSameStreetsForEveryone(t *testing.T) {
+	f := setup(t)
+	ctx := context.Background()
+	q := store.New(f.pool)
+	g, err := f.svc.Create(ctx, f.user, "city", testRules("demo"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.svc.CreateChallenge(ctx, f.user, g.ID); !errors.Is(err, ErrWrongPhase) {
+		t.Fatalf("a challenge from a game still on: %v", err)
+	}
+	want := playAll(t, f, f.user, g.ID, 2, geo.Point{Lat: 41.3, Lon: 69.2})
+
+	if _, err := f.svc.CreateChallenge(ctx, f.other, g.ID); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("a challenge from someone else's game: %v", err)
+	}
+	code, err := f.svc.CreateChallenge(ctx, f.user, g.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if again, err := f.svc.CreateChallenge(ctx, f.user, g.ID); err != nil || again != code {
+		t.Fatalf("asked twice: %q and %q, %v", code, again, err)
+	}
+
+	// the challenger stands on the board from the start, and no one has a "you" yet
+	ch, err := f.svc.GetChallenge(ctx, f.other, code)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ch.Players != 1 || ch.Board[0].User.ID != f.user || ch.You != nil || ch.Rounds != 2 {
+		t.Fatalf("a new challenge: %+v", ch)
+	}
+
+	// a friend, a guest, plays the same panoramas, the same way round
+	mine, err := f.svc.PlayChallenge(ctx, f.other, code)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if mine.Challenge == nil || *mine.Challenge != code {
+		t.Fatalf("the game doesn't know its challenge: %+v", mine.Challenge)
+	}
+	if again, err := f.svc.PlayChallenge(ctx, f.other, code); err != nil || again.ID != mine.ID {
+		t.Fatalf("a second tap started another game: %v", err)
+	}
+	got := playAll(t, f, f.other, mine.ID, 2, geo.Point{Lat: 41.25, Lon: 69.15})
+	if len(got) != 2 || got[0] != want[0] || got[1] != want[1] {
+		t.Fatalf("panoramas %v, the challenger had %v", got, want)
+	}
+	if again, err := f.svc.PlayChallenge(ctx, f.other, code); err != nil || again.ID != mine.ID || again.Status != "finished" {
+		t.Fatalf("after the end the link gives the finished game: %+v, %v", again, err)
+	}
+
+	// both on one board, best first, the friend's place known
+	ch, err = f.svc.GetChallenge(ctx, f.other, code)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ch.Players != 2 || ch.You == nil || ch.You.Place == 0 || ch.Board[0].Total < ch.Board[1].Total {
+		t.Fatalf("the board: %+v, you %+v", ch.Board, ch.You)
+	}
+
+	// the ring is the challenge's players, like a room's: two guesses are enough
+	crowd := f.svc.crowd(ctx, f.other, mine.ID, 1)
+	if crowd == nil || crowd.N != 2 {
+		t.Fatalf("crowd = %+v, want the 2 players", crowd)
+	}
+
+	// the card's squares: the challenger's rounds
+	scores, err := f.svc.CreatorScores(ctx, ch)
+	if err != nil || len(scores) != 2 {
+		t.Fatalf("scores %v, %v", scores, err)
+	}
+
+	// a merge keeps the link and leaves one row per player on the board
+	for _, step := range []error{
+		q.MergeGames(ctx, store.MergeGamesParams{UserID: f.other, OtherID: f.user}),
+		q.MergeGuesses(ctx, store.MergeGuessesParams{UserID: f.other, OtherID: f.user}),
+		q.MergeChallenges(ctx, store.MergeChallengesParams{UserID: f.other, OtherID: f.user}),
+		q.DeleteUser(ctx, f.user),
+	} {
+		if step != nil {
+			t.Fatal(step)
+		}
+	}
+	ch, err = f.svc.GetChallenge(ctx, f.other, code)
+	if err != nil || ch.Players != 1 || ch.By.ID != f.other {
+		t.Fatalf("after a merge: %+v, %v", ch, err)
+	}
+}
+
+func TestChallengeFromAnEndlessGameIsTheRoundsPlayed(t *testing.T) {
+	f := setup(t)
+	ctx := context.Background()
+	r := testRules("demo")
+	r.Rounds = 0
+	g, err := f.svc.Create(ctx, f.user, "city", r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	playAll(t, f, f.user, g.ID, 3, geo.Point{Lat: 41.3, Lon: 69.2})
+	if _, err := f.svc.Finish(ctx, f.user, g.ID); err != nil {
+		t.Fatal(err)
+	}
+	code, err := f.svc.CreateChallenge(ctx, f.user, g.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mine, err := f.svc.PlayChallenge(ctx, f.other, code)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if mine.Rules.Rounds != 3 {
+		t.Fatalf("rounds %d, want the 3 played", mine.Rules.Rounds)
+	}
+	playAll(t, f, f.other, mine.ID, 3, geo.Point{Lat: 41.3, Lon: 69.2})
+	if _, err := f.svc.NextRound(ctx, f.other, mine.ID); !errors.Is(err, ErrGameOver) {
+		t.Fatalf("a fourth round: %v", err)
+	}
+}
+
+func TestChallengeFromARoomPutsEveryoneOnTheBoard(t *testing.T) {
+	f := setup(t)
+	ctx := context.Background()
+	roomGame := uuid.New()
+	for _, u := range []uuid.UUID{f.user, f.other} {
+		g, err := f.svc.Create(ctx, u, "city", testRules("demo"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		playAll(t, f, u, g.ID, 2, geo.Point{Lat: 41.3, Lon: 69.2})
+		if _, err := f.pool.Exec(ctx, `UPDATE games SET room_game = $1, mode = 'room' WHERE id = $2`, roomGame, g.ID); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var first, second uuid.UUID
+	if err := f.pool.QueryRow(ctx, `SELECT id FROM games WHERE user_id = $1`, f.user).Scan(&first); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.pool.QueryRow(ctx, `SELECT id FROM games WHERE user_id = $1`, f.other).Scan(&second); err != nil {
+		t.Fatal(err)
+	}
+	code, err := f.svc.CreateChallenge(ctx, f.user, first)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// the other player of the room gets the same link, and neither plays it twice
+	if same, err := f.svc.CreateChallenge(ctx, f.other, second); err != nil || same != code {
+		t.Fatalf("the room's other player: %q, %v", same, err)
+	}
+	ch, err := f.svc.GetChallenge(ctx, f.other, code)
+	if err != nil || ch.Players != 2 || ch.You == nil || ch.You.Status != "finished" {
+		t.Fatalf("the room's board: %+v, %v", ch, err)
 	}
 }

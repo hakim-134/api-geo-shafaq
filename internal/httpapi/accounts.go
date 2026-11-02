@@ -298,12 +298,12 @@ func (s *Server) GetMyProfile(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, p)
 }
 
-func (s *Server) ListMyStreets(w http.ResponseWriter, r *http.Request) {
+func (s *Server) ListMyStreets(w http.ResponseWriter, r *http.Request, params oapi.ListMyStreetsParams) {
 	u := s.player(w, r)
 	if u == nil {
 		return
 	}
-	rows, err := s.q.MyStreets(r.Context(), u.ID)
+	rows, err := s.q.MyStreets(r.Context(), store.MyStreetsParams{UserID: u.ID, Place: params.Place})
 	if err != nil {
 		fail(w, r, err)
 		return

@@ -86,6 +86,9 @@ UPDATE sessions SET user_id = @user_id WHERE user_id = @other_id;
 -- name: MergeMaps :exec
 UPDATE maps SET owner_id = @user_id WHERE owner_id = @other_id;
 
+-- name: MergeChallenges :exec
+UPDATE challenges SET created_by = @user_id WHERE created_by = @other_id;
+
 -- name: MergeBan :exec
 -- A ban follows the person into the merged account.
 UPDATE users u SET banned_at = o.banned_at, ban_reason = o.ban_reason
@@ -150,7 +153,8 @@ WHERE g.user_id = @user_id AND g.guessed_at IS NOT NULL AND p.street_id IS NOT N
 
 -- name: MyStreets :many
 -- Every street the player has been on: its district or city, how many rounds, and the closest
--- guess (-1 when every round there went without a pin). Closest first.
+-- guess (-1 when every round there went without a pin). Closest first. With @place only the rounds
+-- inside that place, as its progress counts them (a long street runs through several tumanlar).
 SELECT s.id, s.name_uz, s.name_ru,
        pl.name_uz AS place_uz, pl.name_ru AS place_ru, pl.name_en AS place_en,
        count(*)::int AS rounds,
@@ -165,6 +169,8 @@ JOIN panoramas p ON p.id = r.panorama_id
 JOIN streets s ON s.id = p.street_id
 JOIN places pl ON pl.id = s.place_id
 WHERE g.user_id = @user_id AND g.guessed_at IS NOT NULL
+  AND (sqlc.narg('place')::text IS NULL
+       OR (SELECT x.id FROM places x WHERE x.slug = sqlc.narg('place')) = ANY (p.place_ids))
 GROUP BY s.id, pl.id
 ORDER BY min(g.km) NULLS LAST, s.name_uz;
 

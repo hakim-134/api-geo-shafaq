@@ -401,6 +401,46 @@ type AuthResult struct {
 // AuthResultStatus defines model for AuthResult.Status.
 type AuthResultStatus string
 
+// Challenge defines model for Challenge.
+type Challenge struct {
+	// Board The leaderboard's top, best first, and the caller's row wherever it stands.
+	Board []ChallengeRow `json:"board"`
+	By    PublicUser     `json:"by"`
+	Code  string         `json:"code"`
+	Map   MapSummary     `json:"map"`
+
+	// Players Everyone who finished it.
+	Players int `json:"players"`
+	Rounds  int `json:"rounds"`
+
+	// Rules One set of rules for solo games, rooms and challenges.
+	Rules Rules         `json:"rules"`
+	You   *ChallengeYou `json:"you,omitempty"`
+}
+
+// ChallengeRow defines model for ChallengeRow.
+type ChallengeRow struct {
+	Game openapi_types.UUID `json:"game"`
+
+	// Hints Hints taken
+	Hints *int `json:"hints,omitempty"`
+
+	// Place Equal scores share a place.
+	Place  int        `json:"place"`
+	Player PublicUser `json:"player"`
+	Total  int        `json:"total"`
+}
+
+// ChallengeYou defines model for ChallengeYou.
+type ChallengeYou struct {
+	Game openapi_types.UUID `json:"game"`
+
+	// Place Once finished.
+	Place  *int       `json:"place,omitempty"`
+	Status GameStatus `json:"status"`
+	Total  int        `json:"total"`
+}
+
 // Circle defines model for Circle.
 type Circle struct {
 	Center   LatLon  `json:"center"`
@@ -440,6 +480,8 @@ type Error struct {
 
 // Game defines model for Game.
 type Game struct {
+	// Challenge The code of the challenge this game is part of.
+	Challenge  *string    `json:"challenge,omitempty"`
 	FinishedAt *time.Time `json:"finishedAt,omitempty"`
 
 	// HintsLeft Hints left in the game (per-game hint rules only).
@@ -1225,6 +1267,9 @@ type User struct {
 	Prefs *Prefs `json:"prefs,omitempty"`
 }
 
+// ChallengeCode defines model for ChallengeCode.
+type ChallengeCode = string
+
 // GameId defines model for GameId.
 type GameId = openapi_types.UUID
 
@@ -1280,6 +1325,12 @@ type ListMyGamesParams struct {
 type UnlinkIdentityJSONBody struct {
 	// Id `Identity.id`
 	Id string `json:"id"`
+}
+
+// ListMyStreetsParams defines parameters for ListMyStreets.
+type ListMyStreetsParams struct {
+	// Place Only the rounds inside this place (a tumani's streets on "my map").
+	Place *string `form:"place,omitempty" json:"place,omitempty"`
 }
 
 // GetPlaceMapParams defines parameters for GetPlaceMap.
@@ -1382,6 +1433,18 @@ type ServerInterface interface {
 	// TelegramWebAppLogin Signs in inside Telegram (the game opened as a Mini App), with Telegram's signed initData.
 	// (POST /v1/auth/telegram/webapp)
 	TelegramWebAppLogin(w http.ResponseWriter, r *http.Request)
+	// GetChallenge A challenge and its leaderboard, with the caller's own game when there is one.
+	// (GET /v1/challenges/{code})
+	GetChallenge(w http.ResponseWriter, r *http.Request, code ChallengeCode)
+	// GetChallengeCard The page Telegram and other link previews read - its title, text and picture.
+	// (GET /v1/challenges/{code}/card)
+	GetChallengeCard(w http.ResponseWriter, r *http.Request, code ChallengeCode)
+	// GetChallengeCardImage The picture of a link preview, 1200×630.
+	// (GET /v1/challenges/{code}/card.png)
+	GetChallengeCardImage(w http.ResponseWriter, r *http.Request, code ChallengeCode)
+	// PlayChallenge The player's game of a challenge. One each - a second call gives the same game.
+	// (POST /v1/challenges/{code}/play)
+	PlayChallenge(w http.ResponseWriter, r *http.Request, code ChallengeCode)
 	// GetConfig What the game needs to know before it draws the sign-in buttons and the avatar picker.
 	// (GET /v1/config)
 	GetConfig(w http.ResponseWriter, r *http.Request)
@@ -1391,6 +1454,9 @@ type ServerInterface interface {
 	// GetGame A game with every finished round. Also used to resume after a reload.
 	// (GET /v1/games/{gameId})
 	GetGame(w http.ResponseWriter, r *http.Request, gameId GameId)
+	// CreateChallenge The link to challenge friends on a finished game's streets. The same game gives the same link.
+	// (POST /v1/games/{gameId}/challenge)
+	CreateChallenge(w http.ResponseWriter, r *http.Request, gameId GameId)
 	// FinishGame Ends the game now, after any round (endless games end this way).
 	// (POST /v1/games/{gameId}/finish)
 	FinishGame(w http.ResponseWriter, r *http.Request, gameId GameId)
@@ -1438,7 +1504,7 @@ type ServerInterface interface {
 	UpdateProfile(w http.ResponseWriter, r *http.Request)
 	// ListMyStreets The Tashkent streets the player has been on, learned ones marked, closest guess first.
 	// (GET /v1/me/streets)
-	ListMyStreets(w http.ResponseWriter, r *http.Request)
+	ListMyStreets(w http.ResponseWriter, r *http.Request, params ListMyStreetsParams)
 	// GetDemoPanorama The drawn test panorama of the `demo` provider (a JPEG).
 	// (GET /v1/pano/demo/{ref})
 	GetDemoPanorama(w http.ResponseWriter, r *http.Request, ref string)
@@ -1603,6 +1669,110 @@ func (siw *ServerInterfaceWrapper) TelegramWebAppLogin(w http.ResponseWriter, r 
 	handler.ServeHTTP(w, r)
 }
 
+// GetChallenge operation middleware
+func (siw *ServerInterfaceWrapper) GetChallenge(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "code" -------------
+	var code ChallengeCode
+
+	err = runtime.BindStyledParameterWithOptions("simple", "code", r.PathValue("code"), &code, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "code", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetChallenge(w, r, code)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetChallengeCard operation middleware
+func (siw *ServerInterfaceWrapper) GetChallengeCard(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "code" -------------
+	var code ChallengeCode
+
+	err = runtime.BindStyledParameterWithOptions("simple", "code", r.PathValue("code"), &code, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "code", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetChallengeCard(w, r, code)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetChallengeCardImage operation middleware
+func (siw *ServerInterfaceWrapper) GetChallengeCardImage(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "code" -------------
+	var code ChallengeCode
+
+	err = runtime.BindStyledParameterWithOptions("simple", "code", r.PathValue("code"), &code, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "code", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetChallengeCardImage(w, r, code)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// PlayChallenge operation middleware
+func (siw *ServerInterfaceWrapper) PlayChallenge(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "code" -------------
+	var code ChallengeCode
+
+	err = runtime.BindStyledParameterWithOptions("simple", "code", r.PathValue("code"), &code, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "code", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.PlayChallenge(w, r, code)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // GetConfig operation middleware
 func (siw *ServerInterfaceWrapper) GetConfig(w http.ResponseWriter, r *http.Request) {
 
@@ -1648,6 +1818,32 @@ func (siw *ServerInterfaceWrapper) GetGame(w http.ResponseWriter, r *http.Reques
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetGame(w, r, gameId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateChallenge operation middleware
+func (siw *ServerInterfaceWrapper) CreateChallenge(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "gameId" -------------
+	var gameId GameId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "gameId", r.PathValue("gameId"), &gameId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "gameId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateChallenge(w, r, gameId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -2035,8 +2231,27 @@ func (siw *ServerInterfaceWrapper) UpdateProfile(w http.ResponseWriter, r *http.
 // ListMyStreets operation middleware
 func (siw *ServerInterfaceWrapper) ListMyStreets(w http.ResponseWriter, r *http.Request) {
 
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListMyStreetsParams
+
+	// ------------- Optional query parameter "place" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "place", r.URL.Query(), &params.Place, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "place"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "place", Err: err})
+		}
+		return
+	}
+
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.ListMyStreets(w, r)
+		siw.Handler.ListMyStreets(w, r, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -2821,6 +3036,11 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/games/{gameId}/rounds/{n}/fail", wrapper.RoundFailed)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/games/{gameId}/rounds/{n}/hint", wrapper.UseHint)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/games/{gameId}/rounds/{n}/guess", wrapper.Guess)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/games/{gameId}/challenge", wrapper.CreateChallenge)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/challenges/{code}", wrapper.GetChallenge)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/challenges/{code}/play", wrapper.PlayChallenge)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/challenges/{code}/card", wrapper.GetChallengeCard)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/challenges/{code}/card.png", wrapper.GetChallengeCardImage)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/rooms", wrapper.CreateRoom)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/rooms/{code}", wrapper.GetRoom)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/rooms/{code}/live", wrapper.RoomLive)

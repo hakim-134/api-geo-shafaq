@@ -27,20 +27,21 @@ import (
 )
 
 type Server struct {
-	db      *pgxpool.Pool
-	valkey  *redis.Client
-	q       *store.Queries
-	players *players.Service
-	games   *game.Service
-	catalog *maps.Catalog
-	places  *places.Cache
-	demo    provider.Demo
-	limit   kv.Limiter
-	version string
-	bot     *telegramBot
-	google  *auth.Google
-	rooms   *room.Hub
-	origins Origins
+	db        *pgxpool.Pool
+	valkey    *redis.Client
+	q         *store.Queries
+	players   *players.Service
+	games     *game.Service
+	catalog   *maps.Catalog
+	places    *places.Cache
+	demo      provider.Demo
+	limit     kv.Limiter
+	version   string
+	bot       *telegramBot
+	google    *auth.Google
+	rooms     *room.Hub
+	origins   Origins
+	publicURL string // how browsers reach this API; empty on the laptop
 
 	livePages pageCount
 	mapCache  mapCache
@@ -73,7 +74,7 @@ func New(d Deps) http.Handler {
 		sessionTTL: d.Config.SessionTTL, trustProxy: d.Config.TrustProxy,
 		bot:    &telegramBot{token: d.Config.TelegramBotToken, client: &http.Client{Timeout: 10 * time.Second}},
 		google: &auth.Google{ClientID: d.Config.GoogleClientID},
-		rooms:  d.Rooms,
+		rooms:  d.Rooms, publicURL: d.Config.PublicURL,
 	}
 	origins := Origins(d.Config.WebOrigins)
 	s.origins = origins

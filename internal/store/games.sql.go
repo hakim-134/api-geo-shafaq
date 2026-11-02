@@ -74,7 +74,7 @@ func (q *Queries) CountUserGames(ctx context.Context, userID uuid.UUID) (int32, 
 const createGame = `-- name: CreateGame :one
 INSERT INTO games (user_id, map_id, mode, rules, size_km, seed)
 VALUES ($1, $2, 'solo', $3, $4, $5)
-RETURNING id, user_id, map_id, mode, rules, size_km, seed, status, total, hints_used, started_at, finished_at, played, room_code, room_game
+RETURNING id, user_id, map_id, mode, rules, size_km, seed, status, total, hints_used, started_at, finished_at, played, room_code, room_game, challenge
 `
 
 type CreateGameParams struct {
@@ -110,6 +110,7 @@ func (q *Queries) CreateGame(ctx context.Context, arg CreateGameParams) (Game, e
 		&i.Played,
 		&i.RoomCode,
 		&i.RoomGame,
+		&i.Challenge,
 	)
 	return i, err
 }
@@ -248,7 +249,7 @@ func (q *Queries) GameRounds(ctx context.Context, arg GameRoundsParams) ([]GameR
 }
 
 const getGame = `-- name: GetGame :one
-SELECT id, user_id, map_id, mode, rules, size_km, seed, status, total, hints_used, started_at, finished_at, played, room_code, room_game FROM games WHERE id = $1
+SELECT id, user_id, map_id, mode, rules, size_km, seed, status, total, hints_used, started_at, finished_at, played, room_code, room_game, challenge FROM games WHERE id = $1
 `
 
 func (q *Queries) GetGame(ctx context.Context, id uuid.UUID) (Game, error) {
@@ -270,6 +271,7 @@ func (q *Queries) GetGame(ctx context.Context, id uuid.UUID) (Game, error) {
 		&i.Played,
 		&i.RoomCode,
 		&i.RoomGame,
+		&i.Challenge,
 	)
 	return i, err
 }
@@ -351,7 +353,7 @@ func (q *Queries) ListUserGames(ctx context.Context, arg ListUserGamesParams) ([
 }
 
 const lockGame = `-- name: LockGame :one
-SELECT id, user_id, map_id, mode, rules, size_km, seed, status, total, hints_used, started_at, finished_at, played, room_code, room_game FROM games WHERE id = $1 FOR UPDATE
+SELECT id, user_id, map_id, mode, rules, size_km, seed, status, total, hints_used, started_at, finished_at, played, room_code, room_game, challenge FROM games WHERE id = $1 FOR UPDATE
 `
 
 func (q *Queries) LockGame(ctx context.Context, id uuid.UUID) (Game, error) {
@@ -373,6 +375,7 @@ func (q *Queries) LockGame(ctx context.Context, id uuid.UUID) (Game, error) {
 		&i.Played,
 		&i.RoomCode,
 		&i.RoomGame,
+		&i.Challenge,
 	)
 	return i, err
 }
