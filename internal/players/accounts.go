@@ -153,6 +153,8 @@ func (s *Service) merge(ctx context.Context, keep, other uuid.UUID) error {
 			q.MergeIdentities(ctx, store.MergeIdentitiesParams{UserID: keep, OtherID: other}),
 			q.MergeSessions(ctx, store.MergeSessionsParams{UserID: keep, OtherID: other}),
 			q.MergeMaps(ctx, store.MergeMapsParams{UserID: &keep, OtherID: &other}),
+			q.MergeBarg(ctx, store.MergeBargParams{KeepID: keep, OtherID: other}),
+			q.MergeOwned(ctx, store.MergeOwnedParams{KeepID: keep, OtherID: other}),
 			q.MergeChallenges(ctx, store.MergeChallengesParams{UserID: keep, OtherID: other}),
 			q.MergeBan(ctx, store.MergeBanParams{UserID: keep, OtherID: other}),
 		)
@@ -217,6 +219,10 @@ func (s *Service) UpdateProfile(ctx context.Context, cur store.User, name, avata
 // Empty fields are not set.
 type Prefs struct {
 	Compass string `json:"compass,omitempty"` // classic | modern | mnemonic
+	// what the player wears from the shop (internal/barg); set only by wearing what they own
+	Frame string `json:"frame,omitempty"`
+	Pin   string `json:"pin,omitempty"`
+	Trail string `json:"trail,omitempty"`
 }
 
 var CompassStyles = []string{"classic", "modern", "mnemonic"}

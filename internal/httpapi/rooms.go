@@ -17,6 +17,7 @@ import (
 	"github.com/hakim-134/api-geo-shafaq/internal/maps"
 	"github.com/hakim-134/api-geo-shafaq/internal/metrics"
 	"github.com/hakim-134/api-geo-shafaq/internal/places"
+	"github.com/hakim-134/api-geo-shafaq/internal/players"
 	"github.com/hakim-134/api-geo-shafaq/internal/room"
 	"github.com/hakim-134/api-geo-shafaq/internal/store"
 )
@@ -25,7 +26,8 @@ import (
 // open that brings the room's state after every change.
 
 func who(u *store.User) room.Who {
-	return room.Who{ID: u.ID, Name: u.Name, Avatar: u.Avatar, Guest: u.Guest}
+	prefs := players.UserPrefs(*u)
+	return room.Who{ID: u.ID, Name: u.Name, Avatar: u.Avatar, Guest: u.Guest, Frame: prefs.Frame, Trail: prefs.Trail}
 }
 
 func (s *Server) CreateRoom(w http.ResponseWriter, r *http.Request) {
@@ -448,7 +450,7 @@ func (s *Server) roomOut(ctx context.Context, v *room.View) oapi.RoomState {
 	for _, p := range v.Players {
 		out.Players = append(out.Players, oapi.RoomPlayer{
 			Id: p.ID, Name: p.Name, Avatar: p.Avatar, Guest: p.Guest, Online: p.Online, Left: p.Left,
-			Total: p.Total, Guessed: p.Guessed,
+			Total: p.Total, Guessed: p.Guessed, Frame: frameOut(p.Frame), Trail: frameOut(p.Trail),
 		})
 		if p.ID == v.You && !p.Left {
 			out.Joined = true
@@ -476,7 +478,7 @@ func (s *Server) roomOut(ctx context.Context, v *room.View) oapi.RoomState {
 		heading := res.Heading
 		rr := oapi.RoomResult{N: res.N, Actual: point(res.Actual), Heading: &heading, Place: placeOut(res.Place), Scores: make([]oapi.RoomScore, 0, len(res.Scores))}
 		for _, sc := range res.Scores {
-			o := oapi.RoomScore{Player: sc.Player, Score: sc.Score, HintsUsed: sc.Hints, Km: sc.Km}
+			o := oapi.RoomScore{Player: sc.Player, Score: sc.Score, HintsUsed: sc.Hints, Km: sc.Km, Earned: earnedOut(sc.Earned)}
 			if sc.Base > 0 {
 				o.Base = &sc.Base
 			}

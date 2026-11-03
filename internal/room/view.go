@@ -41,6 +41,8 @@ type PlayerView struct {
 	Name    string
 	Avatar  string
 	Guest   bool
+	Frame   string
+	Trail   string
 	Online  bool
 	Left    bool
 	Total   int
@@ -101,7 +103,7 @@ func (r *Room) view(id uuid.UUID) *View {
 	}
 	for _, p := range r.st.Players {
 		pv := PlayerView{
-			ID: p.ID, Name: p.Name, Avatar: p.Avatar, Guest: p.Guest, Online: p.conns > 0,
+			ID: p.ID, Name: p.Name, Avatar: p.Avatar, Guest: p.Guest, Frame: p.Frame, Trail: p.Trail, Online: p.conns > 0,
 			Left: p.Left, Total: p.Total,
 		}
 		if rd != nil {

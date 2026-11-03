@@ -387,7 +387,8 @@ func (s *Server) ReportUser(w http.ResponseWriter, r *http.Request, id oapi.User
 // ---------- shapes ----------
 
 func publicUser(u store.User) oapi.PublicUser {
-	out := oapi.PublicUser{Id: u.ID, Name: u.Name, Avatar: u.Avatar, Guest: u.Guest, JoinedAt: u.CreatedAt}
+	out := oapi.PublicUser{Id: u.ID, Name: u.Name, Avatar: u.Avatar, Guest: u.Guest, JoinedAt: u.CreatedAt,
+		Frame: frameOut(players.UserPrefs(u).Frame)}
 	if u.BannedAt != nil {
 		banned := true
 		out.Banned = &banned
@@ -404,7 +405,12 @@ func (s *Server) meOut(ctx context.Context, u store.User) (oapi.Me, error) {
 	if err != nil {
 		return oapi.Me{}, err
 	}
+	balance, err := s.q.BargBalance(ctx, u.ID)
+	if err != nil {
+		return oapi.Me{}, err
+	}
 	me := oapi.Me{
+		Barg:       int(balance),
 		User:       oapi.User{Id: u.ID, Name: u.Name, Avatar: u.Avatar, Guest: u.Guest, Prefs: prefsOut(players.UserPrefs(u))},
 		Stats:      oapi.Stats{Games: st.Games, Best: st.Best, AvgRound: st.AvgRound},
 		Identities: make([]oapi.Identity, len(ids)),
@@ -502,5 +508,14 @@ func prefsOut(p players.Prefs) *oapi.Prefs {
 		c := oapi.PrefsCompass(p.Compass)
 		out.Compass = &c
 	}
+	out.Frame, out.Pin, out.Trail = frameOut(p.Frame), frameOut(p.Pin), frameOut(p.Trail)
 	return out
+}
+
+// frameOut: an item the player wears; absent when none.
+func frameOut(id string) *string {
+	if id == "" {
+		return nil
+	}
+	return &id
 }

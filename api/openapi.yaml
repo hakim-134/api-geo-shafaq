@@ -135,6 +135,77 @@ paths:
               schema: { $ref: "#/components/schemas/MissedStreets" }
         "401": { $ref: "#/components/responses/Error" }
 
+  /v1/me/wallet:
+    get:
+      tags: [shop]
+      operationId: getWallet
+      summary: The player's Barg, and how it came and went.
+      responses:
+        "200":
+          description: The wallet
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Wallet" }
+        "401": { $ref: "#/components/responses/Error" }
+
+  /v1/shop:
+    get:
+      tags: [shop]
+      operationId: getShop
+      summary: Everything for sale, at fixed prices, and what the player has.
+      responses:
+        "200":
+          description: The shop
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Shop" }
+        "401": { $ref: "#/components/responses/Error" }
+
+  /v1/shop/{item}/buy:
+    post:
+      tags: [shop]
+      operationId: buyItem
+      summary: Spends earned Barg on an item. Bought before, it changes nothing.
+      parameters:
+        - { name: item, in: path, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: The shop afterwards
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Shop" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
+  /v1/shop/{item}/wear:
+    post:
+      tags: [shop]
+      operationId: wearItem
+      summary: Puts on or takes off something the player owns. One of each kind.
+      parameters:
+        - { name: item, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: ["on"]
+              properties:
+                "on": { type: boolean }
+      responses:
+        "200":
+          description: The shop afterwards
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Shop" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
   /v1/config:
     get:
       tags: [accounts]
@@ -1132,6 +1203,9 @@ components:
           type: string
           enum: [classic, modern, mnemonic]
           description: The compass style. Whether a game has a compass at all is its rule.
+        frame: { type: string, description: "Worn from the shop; read only: POST /v1/shop/{item}/wear." }
+        pin: { type: string, description: Worn from the shop; read only. }
+        trail: { type: string, description: Worn from the shop; read only. }
 
     Stats:
       type: object
@@ -1143,8 +1217,9 @@ components:
 
     Me:
       type: object
-      required: [user, stats, identities]
+      required: [user, stats, identities, barg]
       properties:
+        barg: { type: integer, description: "The player's Barg, the sum of their ledger." }
         user: { $ref: "#/components/schemas/User" }
         stats: { $ref: "#/components/schemas/Stats" }
         identities:
@@ -1216,6 +1291,7 @@ components:
         guest: { type: boolean }
         banned: { type: boolean }
         joinedAt: { type: string, format: date-time }
+        frame: { type: string, description: "The shop's profile frame the player wears." }
 
     ProfileStats:
       type: object
@@ -1265,6 +1341,53 @@ components:
         streets:
           type: array
           items: { $ref: "#/components/schemas/MyStreet" }
+
+    Earned:
+      type: object
+      required: [reason, amount]
+      properties:
+        reason: { type: string, enum: [street, district, challenge] }
+        amount: { type: integer }
+        note: { type: string, description: "The street's or the place's name." }
+
+    Wallet:
+      type: object
+      required: [balance, entries]
+      properties:
+        balance: { type: integer, description: The sum of the ledger. }
+        entries:
+          type: array
+          description: The newest hundred entries.
+          items: { $ref: "#/components/schemas/WalletEntry" }
+
+    WalletEntry:
+      type: object
+      required: [amount, reason, ref, at]
+      properties:
+        amount: { type: integer }
+        reason: { type: string, enum: [street, district, challenge, buy, refund] }
+        ref: { type: string, description: "buy, refund: the item." }
+        note: { type: string }
+        at: { type: string, format: date-time }
+
+    Shop:
+      type: object
+      required: [balance, items]
+      properties:
+        balance: { type: integer }
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/ShopItem" }
+
+    ShopItem:
+      type: object
+      required: [id, kind, price, owned, worn]
+      properties:
+        id: { type: string }
+        kind: { type: string, enum: [frame, pin, trail] }
+        price: { type: integer, description: Fixed. }
+        owned: { type: boolean }
+        worn: { type: boolean }
 
     MapBest:
       type: object
@@ -1619,6 +1742,8 @@ components:
         name: { type: string }
         avatar: { type: string }
         guest: { type: boolean }
+        frame: { type: string, description: "The shop's profile frame the player wears." }
+        trail: { type: string, description: "The shop's trail the player wears: their line on the result, on every phone." }
         online: { type: boolean, description: Has the room open now. }
         left: { type: boolean, description: Left during this game; kept in its table. }
         total: { type: integer }
@@ -1667,6 +1792,10 @@ components:
           type: integer
           description: The score before hints, when they took points (absent when they took none).
         hintsUsed: { type: integer }
+        earned:
+          type: array
+          description: Barg this guess earned.
+          items: { $ref: "#/components/schemas/Earned" }
 
     RoomMessage:
       description: What the room's WebSocket sends.
@@ -1919,6 +2048,10 @@ components:
           description: Where the round's viewer looked first, degrees from north (to open the place's panorama facing the same way).
         gameOver: { type: boolean, description: This was the last round. }
         total: { type: integer, description: The game's total after this round. }
+        earned:
+          type: array
+          description: Barg this guess earned, only as it happens.
+          items: { $ref: "#/components/schemas/Earned" }
         crowd:
           description: Other players on this panorama (solo games), when three or more guessed it.
           type: object

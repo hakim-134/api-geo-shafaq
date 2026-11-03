@@ -21,6 +21,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/hakim-134/api-geo-shafaq/internal/barg"
 	"github.com/hakim-134/api-geo-shafaq/internal/game"
 	"github.com/hakim-134/api-geo-shafaq/internal/geo"
 	"github.com/hakim-134/api-geo-shafaq/internal/maps"
@@ -82,6 +83,8 @@ type Who struct {
 	Name   string
 	Avatar string
 	Guest  bool
+	Frame  string // the shop's frame the player wears
+	Trail  string // and their trail: friends see it on the result
 }
 
 // Conn is one live connection of a player's page (a WebSocket).
@@ -120,6 +123,8 @@ type Player struct {
 	Name      string     `json:"name"`
 	Avatar    string     `json:"avatar"`
 	Guest     bool       `json:"guest"`
+	Frame     string     `json:"frame,omitempty"`
+	Trail     string     `json:"trail,omitempty"`
 	Total     int        `json:"total"`
 	HintsUsed int        `json:"hintsUsed"` // in this game, for per-game hint rules
 	Left      bool       `json:"left,omitempty"`
@@ -163,12 +168,13 @@ type Done struct {
 }
 
 type Score struct {
-	Player uuid.UUID  `json:"player"`
-	Guess  *geo.Point `json:"guess,omitempty"`
-	Km     *float64   `json:"km,omitempty"`
-	Score  int        `json:"score"`
-	Base   int        `json:"base,omitempty"` // the score before hints, when they took points
-	Hints  int        `json:"hints"`
+	Player uuid.UUID     `json:"player"`
+	Guess  *geo.Point    `json:"guess,omitempty"`
+	Km     *float64      `json:"km,omitempty"`
+	Score  int           `json:"score"`
+	Base   int           `json:"base,omitempty"` // the score before hints, when they took points
+	Hints  int           `json:"hints"`
+	Earned []barg.Earned `json:"earned,omitempty"` // Barg this guess earned
 }
 
 // Room is one live room. Every method locks it.
@@ -308,7 +314,7 @@ func (r *Room) Join(ctx context.Context, c Conn, who Who) error {
 		p = &Player{ID: who.ID}
 		r.st.Players = append(r.st.Players, p)
 	}
-	p.Name, p.Avatar, p.Guest, p.Left = who.Name, who.Avatar, who.Guest, false
+	p.Name, p.Avatar, p.Guest, p.Frame, p.Trail, p.Left = who.Name, who.Avatar, who.Guest, who.Frame, who.Trail, false
 	p.conns++
 	p.AwaySince = nil
 	r.conns[c] = who.ID
@@ -964,6 +970,11 @@ func (r *Room) writeRound(ctx context.Context, d *Done) error {
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return err
+	}
+	for i := range d.Scores {
+		if sc := &d.Scores[i]; rd.Seen[sc.Player] {
+			sc.Earned = r.hub.Games.AwardGuess(ctx, sc.Player, rd.PanoID, sc.Km)
+		}
 	}
 	for id, g := range made {
 		r.st.GameRows[id] = g

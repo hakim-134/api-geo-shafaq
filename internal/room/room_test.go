@@ -600,3 +600,43 @@ func TestPlayAgainBringsNewStreets(t *testing.T) {
 		}
 	}
 }
+
+// A street found in a room earns Barg like one found alone; a far pin nothing.
+func TestARoomEarnsBarg(t *testing.T) {
+	f := setup(t, 2)
+	ctx := context.Background()
+	if _, err := f.pool.Exec(ctx, `INSERT INTO streets (place_id, name_uz) SELECT id, 'Ko‘cha' FROM places LIMIT 1`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.pool.Exec(ctx, `UPDATE panoramas SET street_id = (SELECT id FROM streets LIMIT 1)`); err != nil {
+		t.Fatal(err)
+	}
+	rm, _ := f.open(roomRules(1, 60))
+	a, b := f.users[0].ID, f.users[1].ID
+
+	must(t, rm.Start(ctx, a))
+	must(t, rm.Shown(ctx, a, 1, nil))
+	must(t, rm.Shown(ctx, b, 1, nil))
+
+	actual := rm.st.Round.Actual
+	far := geo.Point{Lat: 40, Lon: 60}
+	must(t, rm.Guess(ctx, a, 1, &actual))
+	must(t, rm.Guess(ctx, b, 1, &far))
+	v := rm.View(a)
+	if v.Phase != Result {
+		t.Fatalf("phase %s", v.Phase)
+	}
+	for _, s := range v.Results[0].Scores {
+		want := 0
+		if s.Player == a {
+			want = 1
+		}
+		if len(s.Earned) != want {
+			t.Fatalf("player %v earned %+v, want %d earnings", s.Player, s.Earned, want)
+		}
+	}
+	q := store.New(f.pool)
+	if got, _ := q.BargBalance(ctx, a); got != 5 {
+		t.Fatalf("balance %d", got)
+	}
+}

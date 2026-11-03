@@ -11,6 +11,17 @@ import (
 	"github.com/google/uuid"
 )
 
+type BargLedger struct {
+	ID        int64
+	UserID    uuid.UUID
+	Amount    int32
+	Reason    string
+	Ref       string
+	Note      string
+	Key       string
+	CreatedAt time.Time
+}
+
 type Challenge struct {
 	Code      string
 	MapID     int64
@@ -189,6 +200,12 @@ type Session struct {
 	CreatedAt  time.Time
 	LastUsedAt time.Time
 	ExpiresAt  time.Time
+}
+
+type ShopOwned struct {
+	UserID    uuid.UUID
+	Item      string
+	CreatedAt time.Time
 }
 
 type Street struct {

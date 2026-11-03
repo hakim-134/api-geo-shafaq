@@ -15,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/hakim-134/api-geo-shafaq/internal/barg"
 	"github.com/hakim-134/api-geo-shafaq/internal/geo"
 	"github.com/hakim-134/api-geo-shafaq/internal/maps"
 	"github.com/hakim-134/api-geo-shafaq/internal/metrics"
@@ -133,7 +134,8 @@ type Result struct {
 	Heading   float64 // where the round's viewer looked first: the place's panorama opens so
 	GameOver  bool
 	Total     int
-	Crowd     *Crowd // how other players did here, when enough of them played this panorama
+	Crowd     *Crowd        // how other players did here, when enough of them played this panorama
+	Earned    []barg.Earned // Barg this guess earned, only as it happens
 }
 
 // Crowd is other players on a round's panorama: the average distance of their guesses.
@@ -795,6 +797,9 @@ func (s *Service) Guess(ctx context.Context, userID, id uuid.UUID, n int, pos *g
 		return nil, ErrBadInput
 	}
 	var out *Result
+	var panorama int64
+	var won *string
+	fresh := false
 	err := s.inGame(ctx, userID, id, func(q *store.Queries, g *Game) error {
 		if n >= 1 && n <= len(g.Rounds) && g.Rounds[n-1].Result != nil {
 			out = g.Rounds[n-1].Result // already guessed: same answer again
@@ -847,7 +852,10 @@ func (s *Service) Guess(ctx context.Context, userID, id uuid.UUID, n int, pos *g
 		if res.Place, err = places.Lookup(ctx, q, actual); err != nil {
 			return err
 		}
-		out = res
+		out, panorama, fresh = res, row.PanoramaID, true
+		if res.GameOver {
+			won = g.Challenge
+		}
 		return nil
 	})
 	if err != nil {
@@ -855,6 +863,12 @@ func (s *Service) Guess(ctx context.Context, userID, id uuid.UUID, n int, pos *g
 	}
 	metrics.RoundsScored.Inc()
 	out.Crowd = s.crowd(ctx, userID, id, n)
+	if fresh && !out.Late {
+		out.Earned = s.AwardGuess(ctx, userID, panorama, out.Km)
+	}
+	if won != nil {
+		out.Earned = append(out.Earned, s.AwardChallenge(ctx, userID, *won)...)
+	}
 	return out, nil
 }
 

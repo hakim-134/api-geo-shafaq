@@ -167,6 +167,13 @@ Each player's private `miss-<id>` map. `POST /v1/games` on it rewrites its sourc
 and not yet guessed within 500 m (`SyncMissed`), and `Pick.Frame` plays it on the street map's box and
 size, so the box can't give the last street away. `GET /v1/me/missed` is the list. Its games set no record.
 
+## Barg and the shop
+
+`internal/barg`: `barg_ledger` is append-only (a trigger refuses edits and deletes; only a merge moves rows), a
+balance is its sum, and a unique key makes every entry happen once. `internal/game/earn.go` says what earns: a
+street learned, a district learned, a challenge won (a few a day). The shop's items and fixed prices are
+`barg.Shop`; what a player owns is `shop_owned`, what they wear is in `users.prefs`. [Decision 0021](https://github.com/hakim-134/_geoshafaq_claude/blob/main/decisions/0021-barg.md).
+
 ## Yandex usage
 
 The free key allows about 100 panorama views a day and no paid products; going over again and

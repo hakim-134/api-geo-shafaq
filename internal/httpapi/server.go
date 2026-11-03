@@ -14,6 +14,7 @@ import (
 	"github.com/redis/go-redis/v9"
 
 	"github.com/hakim-134/api-geo-shafaq/internal/auth"
+	"github.com/hakim-134/api-geo-shafaq/internal/barg"
 	"github.com/hakim-134/api-geo-shafaq/internal/config"
 	"github.com/hakim-134/api-geo-shafaq/internal/game"
 	"github.com/hakim-134/api-geo-shafaq/internal/httpapi/oapi"
@@ -116,9 +117,9 @@ func fail(w http.ResponseWriter, r *http.Request, err error) {
 	status := http.StatusInternalServerError
 	code := "internal"
 	switch {
-	case errors.Is(err, game.ErrNotFound), errors.Is(err, maps.ErrNotFound), errors.Is(err, players.ErrNotFound):
+	case errors.Is(err, game.ErrNotFound), errors.Is(err, maps.ErrNotFound), errors.Is(err, players.ErrNotFound), errors.Is(err, barg.ErrNoItem):
 		status, code = http.StatusNotFound, "not_found"
-	case errors.Is(err, game.ErrBadInput), errors.Is(err, players.ErrBadAvatar), errors.Is(err, players.ErrBadPrefs):
+	case errors.Is(err, game.ErrBadInput), errors.Is(err, players.ErrBadAvatar), errors.Is(err, players.ErrBadPrefs), errors.Is(err, barg.ErrNotWearable):
 		status, code = http.StatusBadRequest, "bad_input"
 	case errors.Is(err, players.ErrBadName):
 		status, code = http.StatusBadRequest, "bad_name"
@@ -126,6 +127,8 @@ func fail(w http.ResponseWriter, r *http.Request, err error) {
 		status, code = http.StatusConflict, "last_identity"
 	case errors.Is(err, auth.ErrBadLogin):
 		status, code = http.StatusUnauthorized, "bad_login"
+	case errors.Is(err, barg.ErrNotEnough), errors.Is(err, barg.ErrNotOwned):
+		status, code = http.StatusConflict, err.Error()
 	case errors.Is(err, game.ErrWrongPhase), errors.Is(err, game.ErrGameOver), errors.Is(err, game.ErrTooFar),
 		errors.Is(err, game.ErrNoHints), errors.Is(err, game.ErrTooManyFails):
 		status, code = http.StatusConflict, err.Error()

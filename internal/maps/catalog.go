@@ -279,6 +279,9 @@ func (c *Catalog) load(ctx context.Context, slug string) (*Map, error) {
 	return m, nil
 }
 
+// Tree is the place tree the catalog works from.
+func (c *Catalog) Tree(ctx context.Context) (*places.Tree, error) { return c.tree.Get(ctx) }
+
 // Forget drops a map from memory after it changed, so the next read sees it.
 func (c *Catalog) Forget(slug string) {
 	c.mu.Lock()

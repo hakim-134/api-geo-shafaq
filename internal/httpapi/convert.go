@@ -247,6 +247,7 @@ func resultOut(r *game.Result) oapi.RoundResult {
 			N  int     `json:"n"`
 		}{Km: r.Crowd.Km, N: r.Crowd.N}
 	}
+	out.Earned = earnedOut(r.Earned)
 	gameOver, total, heading := r.GameOver, r.Total, r.Heading
 	out.GameOver, out.Total, out.Heading = &gameOver, &total, &heading
 	return out

@@ -42,6 +42,27 @@ func (e AuthResultStatus) Valid() bool {
 	}
 }
 
+// Defines values for EarnedReason.
+const (
+	EarnedReasonChallenge EarnedReason = "challenge"
+	EarnedReasonDistrict  EarnedReason = "district"
+	EarnedReasonStreet    EarnedReason = "street"
+)
+
+// Valid indicates whether the value is a known member of the EarnedReason enum.
+func (e EarnedReason) Valid() bool {
+	switch e {
+	case EarnedReasonChallenge:
+		return true
+	case EarnedReasonDistrict:
+		return true
+	case EarnedReasonStreet:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for GameStatus.
 const (
 	GameStatusAbandoned GameStatus = "abandoned"
@@ -354,6 +375,54 @@ func (e RulesDifficulty) Valid() bool {
 	}
 }
 
+// Defines values for ShopItemKind.
+const (
+	Frame ShopItemKind = "frame"
+	Pin   ShopItemKind = "pin"
+	Trail ShopItemKind = "trail"
+)
+
+// Valid indicates whether the value is a known member of the ShopItemKind enum.
+func (e ShopItemKind) Valid() bool {
+	switch e {
+	case Frame:
+		return true
+	case Pin:
+		return true
+	case Trail:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for WalletEntryReason.
+const (
+	WalletEntryReasonBuy       WalletEntryReason = "buy"
+	WalletEntryReasonChallenge WalletEntryReason = "challenge"
+	WalletEntryReasonDistrict  WalletEntryReason = "district"
+	WalletEntryReasonRefund    WalletEntryReason = "refund"
+	WalletEntryReasonStreet    WalletEntryReason = "street"
+)
+
+// Valid indicates whether the value is a known member of the WalletEntryReason enum.
+func (e WalletEntryReason) Valid() bool {
+	switch e {
+	case WalletEntryReasonBuy:
+		return true
+	case WalletEntryReasonChallenge:
+		return true
+	case WalletEntryReasonDistrict:
+		return true
+	case WalletEntryReasonRefund:
+		return true
+	case WalletEntryReasonStreet:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ReportUserJSONBodyReason.
 const (
 	Cheating ReportUserJSONBodyReason = "cheating"
@@ -464,6 +533,18 @@ type CreateRoom struct {
 	// Rules One set of rules for solo games, rooms and challenges.
 	Rules *Rules `json:"rules,omitempty"`
 }
+
+// Earned defines model for Earned.
+type Earned struct {
+	Amount int `json:"amount"`
+
+	// Note The street's or the place's name.
+	Note   *string      `json:"note,omitempty"`
+	Reason EarnedReason `json:"reason"`
+}
+
+// EarnedReason defines model for Earned.Reason.
+type EarnedReason string
 
 // Error defines model for Error.
 type Error struct {
@@ -675,6 +756,8 @@ type MapSummary struct {
 
 // Me defines model for Me.
 type Me struct {
+	// Barg The player's Barg, the sum of their ledger.
+	Barg       int        `json:"barg"`
 	Identities []Identity `json:"identities"`
 	Stats      Stats      `json:"stats"`
 	User       User       `json:"user"`
@@ -882,6 +965,15 @@ type PlaceShape struct {
 type Prefs struct {
 	// Compass The compass style. Whether a game has a compass at all is its rule.
 	Compass *PrefsCompass `json:"compass,omitempty"`
+
+	// Frame Worn from the shop; read only: POST /v1/shop/{item}/wear.
+	Frame *string `json:"frame,omitempty"`
+
+	// Pin Worn from the shop; read only.
+	Pin *string `json:"pin,omitempty"`
+
+	// Trail Worn from the shop; read only.
+	Trail *string `json:"trail,omitempty"`
 }
 
 // PrefsCompass The compass style. Whether a game has a compass at all is its rule.
@@ -932,8 +1024,11 @@ type ProgressUnit string
 
 // PublicUser defines model for PublicUser.
 type PublicUser struct {
-	Avatar   string             `json:"avatar"`
-	Banned   *bool              `json:"banned,omitempty"`
+	Avatar string `json:"avatar"`
+	Banned *bool  `json:"banned,omitempty"`
+
+	// Frame The shop's profile frame the player wears.
+	Frame    *string            `json:"frame,omitempty"`
 	Guest    bool               `json:"guest"`
 	Id       openapi_types.UUID `json:"id"`
 	JoinedAt time.Time          `json:"joinedAt"`
@@ -966,6 +1061,9 @@ type RoomPhase string
 type RoomPlayer struct {
 	Avatar string `json:"avatar"`
 
+	// Frame The shop's profile frame the player wears.
+	Frame *string `json:"frame,omitempty"`
+
 	// Guessed Answered in the current round.
 	Guessed bool               `json:"guessed"`
 	Guest   bool               `json:"guest"`
@@ -978,6 +1076,9 @@ type RoomPlayer struct {
 	// Online Has the room open now.
 	Online bool `json:"online"`
 	Total  int  `json:"total"`
+
+	// Trail The shop's trail the player wears: their line on the result, on every phone.
+	Trail *string `json:"trail,omitempty"`
 }
 
 // RoomResult defines model for RoomResult.
@@ -1038,7 +1139,10 @@ type RoomRules struct {
 // RoomScore defines model for RoomScore.
 type RoomScore struct {
 	// Base The score before hints, when they took points (absent when they took none).
-	Base      *int               `json:"base,omitempty"`
+	Base *int `json:"base,omitempty"`
+
+	// Earned Barg this guess earned.
+	Earned    *[]Earned          `json:"earned,omitempty"`
 	Guess     *LatLon            `json:"guess,omitempty"`
 	HintsUsed int                `json:"hintsUsed"`
 	Km        *float64           `json:"km,omitempty"`
@@ -1160,6 +1264,9 @@ type RoundResult struct {
 		N int `json:"n"`
 	} `json:"crowd,omitempty"`
 
+	// Earned Barg this guess earned, only as it happens.
+	Earned *[]Earned `json:"earned,omitempty"`
+
 	// GameOver This was the last round.
 	GameOver *bool   `json:"gameOver,omitempty"`
 	Guess    *LatLon `json:"guess,omitempty"`
@@ -1218,6 +1325,26 @@ type Rules struct {
 // RulesDifficulty How hard the places are to guess, and nothing else. Absent = any place.
 type RulesDifficulty string
 
+// Shop defines model for Shop.
+type Shop struct {
+	Balance int        `json:"balance"`
+	Items   []ShopItem `json:"items"`
+}
+
+// ShopItem defines model for ShopItem.
+type ShopItem struct {
+	Id    string       `json:"id"`
+	Kind  ShopItemKind `json:"kind"`
+	Owned bool         `json:"owned"`
+
+	// Price Fixed.
+	Price int  `json:"price"`
+	Worn  bool `json:"worn"`
+}
+
+// ShopItemKind defines model for ShopItem.Kind.
+type ShopItemKind string
+
 // Stats defines model for Stats.
 type Stats struct {
 	AvgRound int `json:"avgRound"`
@@ -1273,6 +1400,29 @@ type User struct {
 	// Prefs The player's own preferences. Absent fields are not set yet (the device's own choice stands).
 	Prefs *Prefs `json:"prefs,omitempty"`
 }
+
+// Wallet defines model for Wallet.
+type Wallet struct {
+	// Balance The sum of the ledger.
+	Balance int `json:"balance"`
+
+	// Entries The newest hundred entries.
+	Entries []WalletEntry `json:"entries"`
+}
+
+// WalletEntry defines model for WalletEntry.
+type WalletEntry struct {
+	Amount int               `json:"amount"`
+	At     time.Time         `json:"at"`
+	Note   *string           `json:"note,omitempty"`
+	Reason WalletEntryReason `json:"reason"`
+
+	// Ref buy, refund: the item.
+	Ref string `json:"ref"`
+}
+
+// WalletEntryReason defines model for WalletEntry.Reason.
+type WalletEntryReason string
 
 // ChallengeCode defines model for ChallengeCode.
 type ChallengeCode = string
@@ -1346,6 +1496,11 @@ type GetPlaceMapParams struct {
 	Mark *[]string `form:"mark,omitempty" json:"mark,omitempty"`
 }
 
+// WearItemJSONBody defines parameters for WearItem.
+type WearItemJSONBody struct {
+	On bool `json:"on"`
+}
+
 // ReportUserJSONBody defines parameters for ReportUser.
 type ReportUserJSONBody struct {
 	Reason ReportUserJSONBodyReason `json:"reason"`
@@ -1416,6 +1571,9 @@ type RoomRoundShownJSONRequestBody = RoundShown
 
 // SetRoomRulesJSONRequestBody defines body for SetRoomRules for application/json ContentType.
 type SetRoomRulesJSONRequestBody = RoomRules
+
+// WearItemJSONRequestBody defines body for WearItem for application/json ContentType.
+type WearItemJSONRequestBody WearItemJSONBody
 
 // ReportUserJSONRequestBody defines body for ReportUser for application/json ContentType.
 type ReportUserJSONRequestBody ReportUserJSONBody
@@ -1515,6 +1673,9 @@ type ServerInterface interface {
 	// ListMyStreets The Tashkent streets the player has been on, learned ones marked, closest guess first.
 	// (GET /v1/me/streets)
 	ListMyStreets(w http.ResponseWriter, r *http.Request, params ListMyStreetsParams)
+	// GetWallet The player's Barg, and how it came and went.
+	// (GET /v1/me/wallet)
+	GetWallet(w http.ResponseWriter, r *http.Request)
 	// GetDemoPanorama The drawn test panorama of the `demo` provider (a JPEG).
 	// (GET /v1/pano/demo/{ref})
 	GetDemoPanorama(w http.ResponseWriter, r *http.Request, ref string)
@@ -1578,6 +1739,15 @@ type ServerInterface interface {
 	// StartSession Returns the current player, creating a guest on the first visit.
 	// (POST /v1/session)
 	StartSession(w http.ResponseWriter, r *http.Request)
+	// GetShop Everything for sale, at fixed prices, and what the player has.
+	// (GET /v1/shop)
+	GetShop(w http.ResponseWriter, r *http.Request)
+	// BuyItem Spends earned Barg on an item. Bought before, it changes nothing.
+	// (POST /v1/shop/{item}/buy)
+	BuyItem(w http.ResponseWriter, r *http.Request, item string)
+	// WearItem Puts on or takes off something the player owns. One of each kind.
+	// (POST /v1/shop/{item}/wear)
+	WearItem(w http.ResponseWriter, r *http.Request, item string)
 	// GetProfile A player's public profile.
 	// (GET /v1/users/{userId})
 	GetProfile(w http.ResponseWriter, r *http.Request, userId UserId)
@@ -2285,6 +2455,20 @@ func (siw *ServerInterfaceWrapper) ListMyStreets(w http.ResponseWriter, r *http.
 	handler.ServeHTTP(w, r)
 }
 
+// GetWallet operation middleware
+func (siw *ServerInterfaceWrapper) GetWallet(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetWallet(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // GetDemoPanorama operation middleware
 func (siw *ServerInterfaceWrapper) GetDemoPanorama(w http.ResponseWriter, r *http.Request) {
 
@@ -2856,6 +3040,72 @@ func (siw *ServerInterfaceWrapper) StartSession(w http.ResponseWriter, r *http.R
 	handler.ServeHTTP(w, r)
 }
 
+// GetShop operation middleware
+func (siw *ServerInterfaceWrapper) GetShop(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetShop(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// BuyItem operation middleware
+func (siw *ServerInterfaceWrapper) BuyItem(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "item" -------------
+	var item string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "item", r.PathValue("item"), &item, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "item", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.BuyItem(w, r, item)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// WearItem operation middleware
+func (siw *ServerInterfaceWrapper) WearItem(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "item" -------------
+	var item string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "item", r.PathValue("item"), &item, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "item", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.WearItem(w, r, item)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // GetProfile operation middleware
 func (siw *ServerInterfaceWrapper) GetProfile(w http.ResponseWriter, r *http.Request) {
 
@@ -3035,6 +3285,10 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/me/games", wrapper.ListMyGames)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/me/streets", wrapper.ListMyStreets)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/me/missed", wrapper.GetMissedStreets)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/me/wallet", wrapper.GetWallet)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/shop", wrapper.GetShop)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/shop/{item}/buy", wrapper.BuyItem)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/shop/{item}/wear", wrapper.WearItem)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/config", wrapper.GetConfig)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/auth/telegram/start", wrapper.StartTelegramLogin)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/auth/telegram/check", wrapper.CheckTelegramLogin)
