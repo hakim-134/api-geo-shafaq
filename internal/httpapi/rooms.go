@@ -45,6 +45,10 @@ func (s *Server) CreateRoom(w http.ResponseWriter, r *http.Request) {
 	if !s.allow(w, r, "room-new:"+u.ID.String(), 30, time.Hour) {
 		return
 	}
+	if err := s.mayStart(r.Context(), u, body.Map); err != nil {
+		fail(w, r, err)
+		return
+	}
 	rm, err := s.rooms.Create(r.Context(), who(u), body.Map, rulesIn(body.Rules))
 	if err != nil {
 		fail(w, r, err)
@@ -94,6 +98,9 @@ func (s *Server) SetRoomRules(w http.ResponseWriter, r *http.Request, code oapi.
 		return
 	}
 	s.inRoom(w, r, code, func(rm *room.Room, u *store.User) error {
+		if err := s.mayStart(r.Context(), u, body.Map); err != nil {
+			return err
+		}
 		return rm.SetRules(r.Context(), u.ID, body.Map, rulesIn(body.Rules))
 	})
 }

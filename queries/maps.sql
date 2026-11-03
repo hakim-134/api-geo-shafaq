@@ -74,3 +74,23 @@ SELECT pl.id, pl.outline_svg
 FROM map_sources s JOIN places pl ON pl.id = s.place_id
 WHERE s.map_id = @map_id
 ORDER BY pl.size_km DESC;
+
+-- ---------- streets I miss ----------
+
+-- name: UpsertMissMap :one
+INSERT INTO maps (slug, owner_id, name_uz, name_ru, name_en, visibility, rules, pick, sort)
+VALUES (@slug, @owner_id, @name_uz, @name_ru, @name_en, 'private', @rules, @pick, 3000)
+ON CONFLICT (slug) DO UPDATE SET name_uz = excluded.name_uz, name_ru = excluded.name_ru,
+    name_en = excluded.name_en, pick = excluded.pick, updated_at = now()
+RETURNING id;
+
+-- name: AddMissedStreets :exec
+-- The player's map of missed streets: every street been on and not yet guessed within @learned_km.
+INSERT INTO map_sources (map_id, street_id)
+SELECT @map_id, p.street_id
+FROM guesses g
+JOIN rounds r ON r.game_id = g.game_id AND r.n = g.n
+JOIN panoramas p ON p.id = r.panorama_id
+WHERE g.user_id = @user_id AND g.guessed_at IS NOT NULL AND p.street_id IS NOT NULL
+GROUP BY p.street_id
+HAVING coalesce(min(g.km), 'Infinity'::float8) > @learned_km::float8;

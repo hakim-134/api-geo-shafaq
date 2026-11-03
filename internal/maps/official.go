@@ -20,11 +20,12 @@ import (
 // or a region) is picked first, weighted by its size to the power Pow, then a panorama in
 // it. So small towns still come up, and big ones do not take over.
 type Pick struct {
-	Group       string  `json:"group"`       // street | district | region | none
-	Pow         float64 `json:"pow"`         // 0 = every group equal, 1 = by size
-	SnapKm      float64 `json:"snapKm"`      // how far the opened panorama may be from the chosen one
-	JitterKm    float64 `json:"jitterKm"`    // move the search point up to this far, for variety
-	StreetsOnly bool    `json:"streetsOnly"` // only panoramas on named streets
+	Group       string  `json:"group"`           // street | district | region | none
+	Pow         float64 `json:"pow"`             // 0 = every group equal, 1 = by size
+	SnapKm      float64 `json:"snapKm"`          // how far the opened panorama may be from the chosen one
+	JitterKm    float64 `json:"jitterKm"`        // move the search point up to this far, for variety
+	StreetsOnly bool    `json:"streetsOnly"`     // only panoramas on named streets
+	Frame       string  `json:"frame,omitempty"` // play on this map's box and size, not the map's own
 }
 
 type official struct {

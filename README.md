@@ -161,6 +161,12 @@ districts (a region), regions (the country) or single spots. Seen = played a rou
 learned = a street or spot guessed within 500 m, a district or region with the pin inside it.
 Maps of one place carry the same progress, and the place around it (`parent`) for "go wider".
 
+## Streets I miss
+
+Each player's private `miss-<id>` map. `POST /v1/games` on it rewrites its sources to the streets been on
+and not yet guessed within 500 m (`SyncMissed`), and `Pick.Frame` plays it on the street map's box and
+size, so the box can't give the last street away. `GET /v1/me/missed` is the list. Its games set no record.
+
 ## Yandex usage
 
 The free key allows about 100 panorama views a day and no paid products; going over again and

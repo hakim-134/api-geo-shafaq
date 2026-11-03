@@ -68,7 +68,7 @@ func run() error {
 	}
 	q := store.New(pool)
 	tree := &places.Cache{Q: q, Providers: reg.Names()}
-	catalog := maps.NewCatalog(q, reg, tree)
+	catalog := maps.NewCatalog(pool, reg, tree)
 	games := &game.Service{
 		Pool: pool, Catalog: catalog, Reg: reg,
 		Usage: provider.Usage{Q: q, YandexLimit: cfg.YandexDailyLimit, Caps: cfg.DailyCaps},

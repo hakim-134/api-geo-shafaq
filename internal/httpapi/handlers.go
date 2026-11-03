@@ -14,6 +14,7 @@ import (
 	"github.com/hakim-134/api-geo-shafaq/internal/game"
 	"github.com/hakim-134/api-geo-shafaq/internal/geo"
 	"github.com/hakim-134/api-geo-shafaq/internal/httpapi/oapi"
+	"github.com/hakim-134/api-geo-shafaq/internal/maps"
 	"github.com/hakim-134/api-geo-shafaq/internal/places"
 	"github.com/hakim-134/api-geo-shafaq/internal/provider"
 )
@@ -168,6 +169,13 @@ func (s *Server) ListMaps(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) GetMap(w http.ResponseWriter, r *http.Request, slug string) {
 	m, err := s.catalog.Get(r.Context(), slug)
+	uid := zeroUser
+	if u := userFrom(r.Context()); u != nil {
+		uid = u.ID
+	}
+	if err == nil && !m.Open(uid) {
+		err = maps.ErrNotFound
+	}
 	if err != nil {
 		fail(w, r, err)
 		return
@@ -305,6 +313,10 @@ func (s *Server) CreateGame(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !s.allow(w, r, "game:"+u.ID.String(), 120, time.Hour) {
+		return
+	}
+	if err := s.mayStart(r.Context(), u, body.Map); err != nil {
+		fail(w, r, err)
 		return
 	}
 	g, err := s.games.Create(r.Context(), u.ID, body.Map, rulesIn(body.Rules))

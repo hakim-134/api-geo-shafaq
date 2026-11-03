@@ -274,7 +274,7 @@ SELECT DISTINCT ON (m.id) m.slug, m.name_uz, m.name_ru, m.name_en,
        g.id AS game_id, g.total, g.played AS rounds
 FROM games g
 JOIN maps m ON m.id = g.map_id
-WHERE g.user_id = $1 AND g.status = 'finished' AND g.played > 0
+WHERE g.user_id = $1 AND g.status = 'finished' AND g.played > 0 AND m.slug NOT LIKE 'miss-%'
 ORDER BY m.id, g.total::float8 / g.played DESC
 `
 
@@ -423,6 +423,81 @@ func (q *Queries) MergeSessions(ctx context.Context, arg MergeSessionsParams) er
 	return err
 }
 
+const missedStreets = `-- name: MissedStreets :many
+SELECT s.id, s.name_uz, s.name_ru,
+       pl.name_uz AS place_uz, pl.name_ru AS place_ru, pl.name_en AS place_en,
+       count(*)::int AS rounds,
+       coalesce(min(g.km), -1)::float8 AS best_km,
+       ((array_agg(ST_Y(coalesce(r.actual, p.pos)) ORDER BY g.km NULLS LAST))[1])::float8 AS at_lat,
+       ((array_agg(ST_X(coalesce(r.actual, p.pos)) ORDER BY g.km NULLS LAST))[1])::float8 AS at_lon,
+       ((array_agg(r.heading ORDER BY g.km NULLS LAST))[1])::float8 AS heading
+FROM guesses g
+JOIN rounds r ON r.game_id = g.game_id AND r.n = g.n
+JOIN panoramas p ON p.id = r.panorama_id
+JOIN streets s ON s.id = p.street_id
+JOIN places pl ON pl.id = s.place_id
+WHERE g.user_id = $1 AND g.guessed_at IS NOT NULL
+  AND EXISTS (SELECT 1 FROM panoramas a
+              WHERE a.street_id = s.id AND a.status = 'active' AND a.provider = ANY ($2::text[]))
+GROUP BY s.id, pl.id
+HAVING coalesce(min(g.km), 'Infinity'::float8) > $3::float8
+ORDER BY min(g.km) DESC NULLS FIRST, s.name_uz
+`
+
+type MissedStreetsParams struct {
+	UserID    uuid.UUID
+	Providers []string
+	LearnedKm float64
+}
+
+type MissedStreetsRow struct {
+	ID      int64
+	NameUz  string
+	NameRu  string
+	PlaceUz string
+	PlaceRu string
+	PlaceEn string
+	Rounds  int32
+	BestKm  float64
+	AtLat   float64
+	AtLon   float64
+	Heading float64
+}
+
+// The streets the player has been on and not learned, worst first: no pin at all, then the
+// farthest closest guess. A street whose panoramas are all gone can't be played, so it isn't here.
+func (q *Queries) MissedStreets(ctx context.Context, arg MissedStreetsParams) ([]MissedStreetsRow, error) {
+	rows, err := q.db.Query(ctx, missedStreets, arg.UserID, arg.Providers, arg.LearnedKm)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []MissedStreetsRow{}
+	for rows.Next() {
+		var i MissedStreetsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.NameUz,
+			&i.NameRu,
+			&i.PlaceUz,
+			&i.PlaceRu,
+			&i.PlaceEn,
+			&i.Rounds,
+			&i.BestKm,
+			&i.AtLat,
+			&i.AtLon,
+			&i.Heading,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const myStreets = `-- name: MyStreets :many
 SELECT s.id, s.name_uz, s.name_ru,
        pl.name_uz AS place_uz, pl.name_ru AS place_ru, pl.name_en AS place_en,
@@ -550,7 +625,8 @@ func (q *Queries) OpenReports(ctx context.Context) ([]OpenReportsRow, error) {
 
 const profileStats = `-- name: ProfileStats :one
 SELECT count(DISTINCT g.id)::int                              AS games,
-       coalesce(max(g.total) FILTER (WHERE (g.rules ->> 'rounds')::int > 0), 0)::int AS best,
+       coalesce(max(g.total) FILTER (WHERE (g.rules ->> 'rounds')::int > 0
+           AND g.map_id NOT IN (SELECT m.id FROM maps m WHERE m.slug LIKE 'miss-%')), 0)::int AS best,
        coalesce(sum(gu.score), 0)::bigint                      AS score_sum,
        count(gu.*)::int                                        AS rounds,
        count(gu.*) FILTER (WHERE gu.score >= 4900)::int        AS perfect,

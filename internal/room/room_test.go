@@ -121,7 +121,7 @@ func setup(t *testing.T, players int) *fixture {
 		t.Fatal(err)
 	}
 	f := &fixture{t: t, pool: pool, store: &memStore{m: map[string][]byte{}}, clock: time.Now()}
-	f.svc = &game.Service{Pool: pool, Catalog: maps.NewCatalog(q, reg, &places.Cache{Q: q, Providers: reg.Names()}), Reg: reg, Usage: provider.Usage{Q: q}, Now: f.now}
+	f.svc = &game.Service{Pool: pool, Catalog: maps.NewCatalog(pool, reg, &places.Cache{Q: q, Providers: reg.Names()}), Reg: reg, Usage: provider.Usage{Q: q}, Now: f.now}
 	f.hub = f.newHub()
 	for i := range players {
 		u, err := q.CreateUser(ctx, store.CreateUserParams{Name: fmt.Sprintf("🐼_%02d", i), Avatar: "🐼"})

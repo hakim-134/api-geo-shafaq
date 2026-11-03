@@ -161,7 +161,8 @@ func (q *Queries) TouchUser(ctx context.Context, id uuid.UUID) error {
 
 const userStats = `-- name: UserStats :one
 SELECT count(*)::int                                     AS games,
-       coalesce(max(g.total) FILTER (WHERE (g.rules ->> 'rounds')::int > 0), 0)::int AS best,
+       coalesce(max(g.total) FILTER (WHERE (g.rules ->> 'rounds')::int > 0
+           AND g.map_id NOT IN (SELECT m.id FROM maps m WHERE m.slug LIKE 'miss-%')), 0)::int AS best,
        coalesce(sum(g.total), 0)::bigint                  AS score_sum,
        coalesce(sum(g.played), 0)::bigint                 AS rounds_sum
 FROM games g
@@ -175,7 +176,8 @@ type UserStatsRow struct {
 	RoundsSum int64
 }
 
-// Endless games (rules.rounds 0) are left out of the best score: they run up any total.
+// Endless games (rules.rounds 0) are left out of the best score: they run up any total. So are
+// games on a player's missed streets: the streets were just shown to them, it's practice.
 func (q *Queries) UserStats(ctx context.Context, userID uuid.UUID) (UserStatsRow, error) {
 	row := q.db.QueryRow(ctx, userStats, userID)
 	var i UserStatsRow

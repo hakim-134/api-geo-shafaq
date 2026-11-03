@@ -696,6 +696,13 @@ type Metro struct {
 	Name Text `json:"name"`
 }
 
+// MissedStreets defines model for MissedStreets.
+type MissedStreets struct {
+	// Map The player's map of these streets: POST /v1/games plays it, refreshed.
+	Map     string     `json:"map"`
+	Streets []MyStreet `json:"streets"`
+}
+
 // Movement move = walk freely; nomove = look around only; nmpz = no move, no pan, no zoom.
 type Movement string
 
@@ -1493,6 +1500,9 @@ type ServerInterface interface {
 	// UnlinkIdentity Removes a way to sign in. The last one stays (`last_identity`).
 	// (POST /v1/me/identities/unlink)
 	UnlinkIdentity(w http.ResponseWriter, r *http.Request)
+	// GetMissedStreets The streets the player has not learned, worst first, and the map that plays them.
+	// (GET /v1/me/missed)
+	GetMissedStreets(w http.ResponseWriter, r *http.Request)
 	// UpdatePrefs Saves the player's preferences, so every device gets them.
 	// (POST /v1/me/prefs)
 	UpdatePrefs(w http.ResponseWriter, r *http.Request)
@@ -2177,6 +2187,20 @@ func (siw *ServerInterfaceWrapper) UnlinkIdentity(w http.ResponseWriter, r *http
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.UnlinkIdentity(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetMissedStreets operation middleware
+func (siw *ServerInterfaceWrapper) GetMissedStreets(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetMissedStreets(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -3010,6 +3034,7 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/me", wrapper.GetMe)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/me/games", wrapper.ListMyGames)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/me/streets", wrapper.ListMyStreets)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/me/missed", wrapper.GetMissedStreets)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/config", wrapper.GetConfig)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/auth/telegram/start", wrapper.StartTelegramLogin)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/auth/telegram/check", wrapper.CheckTelegramLogin)

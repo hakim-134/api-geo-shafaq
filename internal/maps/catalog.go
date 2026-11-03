@@ -10,7 +10,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/hakim-134/api-geo-shafaq/internal/geo"
 	"github.com/hakim-134/api-geo-shafaq/internal/places"
@@ -20,6 +22,9 @@ import (
 )
 
 var ErrNotFound = errors.New("map not found")
+
+// maxCached is how many maps stay in memory before old ones go: there's one missed map per player.
+const maxCached = 500
 
 // Map is a playable map with its panoramas, ready for picking rounds.
 type Map struct {
@@ -36,6 +41,14 @@ type Map struct {
 	groups   map[int64][]int // group key → indices into Cands
 	Outline  string          // the place's outline SVG, for maps of one place
 	Places   []int64         // the map's places, largest first
+	Owner    *uuid.UUID      // a player's map: who made it
+	Private  bool            // only its owner plays it
+}
+
+// Open says whether this player may see and start this map. A private map answers not found to
+// everyone else: nobody learns it exists.
+func (m *Map) Open(player uuid.UUID) bool {
+	return !m.Private || (m.Owner != nil && *m.Owner == player)
 }
 
 // Place is the map's one place, for maps made of a single place (nil otherwise).
@@ -100,6 +113,7 @@ func (m *Map) Count(allowed map[string]bool) int {
 // Catalog serves maps from memory, reloading each a few minutes after it was read, so the
 // round picker never queries the whole library.
 type Catalog struct {
+	pool *pgxpool.Pool
 	q    *store.Queries
 	reg  *provider.Registry
 	tree *places.Cache
@@ -115,8 +129,8 @@ type entry struct {
 	loaded time.Time
 }
 
-func NewCatalog(q *store.Queries, reg *provider.Registry, tree *places.Cache) *Catalog {
-	return &Catalog{q: q, reg: reg, tree: tree, ttl: 5 * time.Minute, entries: map[string]*entry{}}
+func NewCatalog(pool *pgxpool.Pool, reg *provider.Registry, tree *places.Cache) *Catalog {
+	return &Catalog{pool: pool, q: store.New(pool), reg: reg, tree: tree, ttl: 5 * time.Minute, entries: map[string]*entry{}}
 }
 
 // Official lists the menu's maps.
@@ -154,6 +168,14 @@ func (c *Catalog) Get(ctx context.Context, slug string) (*Map, error) {
 		return nil, err
 	}
 	c.mu.Lock()
+	// missed maps come and go: what hasn't been read lately doesn't stay in memory
+	if len(c.entries) > maxCached {
+		for k, e := range c.entries {
+			if time.Since(e.loaded) >= c.ttl {
+				delete(c.entries, k)
+			}
+		}
+	}
 	c.entries[slug] = &entry{m: m, loaded: time.Now()}
 	c.mu.Unlock()
 	return m, nil
@@ -186,6 +208,8 @@ func (c *Catalog) load(ctx context.Context, slug string) (*Map, error) {
 		Desc:     places.NewText(row.DescUz, row.DescRu, row.DescEn),
 		Official: row.OwnerID == nil,
 		groups:   map[int64][]int{},
+		Owner:    row.OwnerID,
+		Private:  row.Visibility == "private",
 	}
 	if err := json.Unmarshal(row.Rules, &m.Rules); err != nil {
 		return nil, fmt.Errorf("map %s rules: %w", slug, err)
@@ -244,5 +268,20 @@ func (c *Catalog) load(ctx context.Context, slug string) (*Map, error) {
 		const pad = 0.01
 		m.BBox = geo.BBox{pbox[0] - pad, pbox[1] - pad, pbox[2] + pad, pbox[3] + pad}
 	}
+	if m.Pick.Frame != "" {
+		// the box must not give the answer away: one missed street left would frame that street
+		frame, err := c.Get(ctx, m.Pick.Frame)
+		if err != nil {
+			return nil, err
+		}
+		m.BBox, m.SizeKm = frame.BBox, frame.SizeKm
+	}
 	return m, nil
+}
+
+// Forget drops a map from memory after it changed, so the next read sees it.
+func (c *Catalog) Forget(slug string) {
+	c.mu.Lock()
+	delete(c.entries, slug)
+	c.mu.Unlock()
 }

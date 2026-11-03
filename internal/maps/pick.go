@@ -112,6 +112,21 @@ func (m *Map) pick(rng *rand.Rand, allowed map[string]bool, used Used, fits func
 			return last, true
 		}
 	}
+	// nothing that far from the rest: close by is better than the same street again
+	var fresh []int
+	for _, g := range groups {
+		for _, i := range g.idx {
+			if !streets[m.Cands[i].StreetID] {
+				fresh = append(fresh, i)
+			}
+		}
+	}
+	if len(fresh) > 0 {
+		return m.Cands[fresh[rng.IntN(len(fresh))]], true
+	}
+	if fits != nil && len(streets) > 0 {
+		return Candidate{}, false // only streets already played in this difficulty: any other first
+	}
 	return last, true
 }
 

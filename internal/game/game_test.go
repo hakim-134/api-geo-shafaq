@@ -70,7 +70,7 @@ func setup(t *testing.T) *fixture {
 		t.Fatal(err)
 	}
 	f := &fixture{pool: pool, clock: time.Now()}
-	f.svc = &Service{Pool: pool, Catalog: maps.NewCatalog(q, reg, &places.Cache{Q: q, Providers: reg.Names()}), Reg: reg, Usage: provider.Usage{Q: q}, Now: func() time.Time { return f.clock }}
+	f.svc = &Service{Pool: pool, Catalog: maps.NewCatalog(pool, reg, &places.Cache{Q: q, Providers: reg.Names()}), Reg: reg, Usage: provider.Usage{Q: q}, Now: func() time.Time { return f.clock }}
 	for _, id := range []*uuid.UUID{&f.user, &f.other} {
 		u, err := q.CreateUser(ctx, store.CreateUserParams{Name: "🐼_01", Avatar: "🐼"})
 		if err != nil {

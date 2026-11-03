@@ -8,6 +8,8 @@ package store
 import (
 	"context"
 	"encoding/json"
+
+	"github.com/google/uuid"
 )
 
 const addMapPlace = `-- name: AddMapPlace :exec
@@ -22,6 +24,29 @@ type AddMapPlaceParams struct {
 
 func (q *Queries) AddMapPlace(ctx context.Context, arg AddMapPlaceParams) error {
 	_, err := q.db.Exec(ctx, addMapPlace, arg.MapID, arg.PlaceSlug)
+	return err
+}
+
+const addMissedStreets = `-- name: AddMissedStreets :exec
+INSERT INTO map_sources (map_id, street_id)
+SELECT $1, p.street_id
+FROM guesses g
+JOIN rounds r ON r.game_id = g.game_id AND r.n = g.n
+JOIN panoramas p ON p.id = r.panorama_id
+WHERE g.user_id = $2 AND g.guessed_at IS NOT NULL AND p.street_id IS NOT NULL
+GROUP BY p.street_id
+HAVING coalesce(min(g.km), 'Infinity'::float8) > $3::float8
+`
+
+type AddMissedStreetsParams struct {
+	MapID     int64
+	UserID    uuid.UUID
+	LearnedKm float64
+}
+
+// The player's map of missed streets: every street been on and not yet guessed within @learned_km.
+func (q *Queries) AddMissedStreets(ctx context.Context, arg AddMissedStreetsParams) error {
+	_, err := q.db.Exec(ctx, addMissedStreets, arg.MapID, arg.UserID, arg.LearnedKm)
 	return err
 }
 
@@ -262,6 +287,41 @@ func (q *Queries) MapPlaces(ctx context.Context, mapID int64) ([]MapPlacesRow, e
 		return nil, err
 	}
 	return items, nil
+}
+
+const upsertMissMap = `-- name: UpsertMissMap :one
+
+INSERT INTO maps (slug, owner_id, name_uz, name_ru, name_en, visibility, rules, pick, sort)
+VALUES ($1, $2, $3, $4, $5, 'private', $6, $7, 3000)
+ON CONFLICT (slug) DO UPDATE SET name_uz = excluded.name_uz, name_ru = excluded.name_ru,
+    name_en = excluded.name_en, pick = excluded.pick, updated_at = now()
+RETURNING id
+`
+
+type UpsertMissMapParams struct {
+	Slug    string
+	OwnerID *uuid.UUID
+	NameUz  string
+	NameRu  string
+	NameEn  string
+	Rules   json.RawMessage
+	Pick    json.RawMessage
+}
+
+// ---------- streets I miss ----------
+func (q *Queries) UpsertMissMap(ctx context.Context, arg UpsertMissMapParams) (int64, error) {
+	row := q.db.QueryRow(ctx, upsertMissMap,
+		arg.Slug,
+		arg.OwnerID,
+		arg.NameUz,
+		arg.NameRu,
+		arg.NameEn,
+		arg.Rules,
+		arg.Pick,
+	)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
 }
 
 const upsertOfficialMap = `-- name: UpsertOfficialMap :one

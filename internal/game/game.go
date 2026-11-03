@@ -196,6 +196,10 @@ func (s *Service) Prepare(ctx context.Context, slug string, r *rules.Rules) (*ma
 	}
 	// a place with few panoramas plays them all: someone's home is worth a short game
 	rs.Rounds = min(rs.Rounds, have)
+	if m.Pick.Group == "street" {
+		// no street twice: a map of three streets is three rounds, however many panoramas they have
+		rs.Rounds = min(rs.Rounds, m.Shown(allowed).Streets)
+	}
 	open, err := s.uncapped(ctx, allowed)
 	if err != nil {
 		return nil, rs, err

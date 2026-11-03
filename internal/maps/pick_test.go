@@ -136,3 +136,35 @@ func TestDifficultyPicksFromItsSliceOfTheMap(t *testing.T) {
 		t.Fatalf("easy with the easy places used: %v %v", c.Hardness, ok)
 	}
 }
+
+// Three streets a few hundred metres apart on a big map: nothing is "far", no street comes twice.
+func TestPickNeverTheSameStreetTwice(t *testing.T) {
+	for seed := range uint64(200) {
+		m := &Map{Pick: Pick{Pow: 0}, SizeKm: 40, groups: map[int64][]int{}}
+		for st := int64(1); st <= 3; st++ {
+			for i := range 20 {
+				m.groups[st] = append(m.groups[st], len(m.Cands))
+				m.Cands = append(m.Cands, Candidate{
+					Pano:     provider.Pano{ID: int64(len(m.Cands) + 1), Provider: "demo", Pos: geo.Point{Lat: 41.3 + float64(st)*0.001, Lon: 69.2 + float64(i)*0.0001}},
+					StreetID: st, Group: st, Hardness: float64(st) / 4,
+				})
+			}
+		}
+		rng := rand.New(rand.NewPCG(seed, 1))
+		used := Used{IDs: map[int64]bool{}}
+		seen := map[int64]bool{}
+		for range 3 {
+			// a difficulty that holds only one of the three streets must not bring it back
+			c, ok := m.PickAt(rng, map[string]bool{"demo": true}, used, rules.Easy)
+			if !ok {
+				t.Fatal("no panorama")
+			}
+			if seen[c.StreetID] {
+				t.Fatalf("seed %d: street %d twice", seed, c.StreetID)
+			}
+			seen[c.StreetID] = true
+			used.IDs[c.ID] = true
+			used.Pos = append(used.Pos, c.Pos)
+		}
+	}
+}
