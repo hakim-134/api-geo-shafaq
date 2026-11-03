@@ -8,9 +8,26 @@ package store
 import (
 	"context"
 	"encoding/json"
+	"time"
 
 	"github.com/google/uuid"
 )
+
+const addMapArea = `-- name: AddMapArea :exec
+INSERT INTO map_sources (map_id, area)
+VALUES ($1, ST_Multi(ST_CollectionExtract(ST_MakeValid(ST_SetSRID(ST_GeomFromGeoJSON($2::text), 4326)), 3)))
+`
+
+type AddMapAreaParams struct {
+	MapID int64
+	Area  string
+}
+
+// A finger's loop may cross itself: made valid, only its surfaces kept.
+func (q *Queries) AddMapArea(ctx context.Context, arg AddMapAreaParams) error {
+	_, err := q.db.Exec(ctx, addMapArea, arg.MapID, arg.Area)
+	return err
+}
 
 const addMapPlace = `-- name: AddMapPlace :exec
 INSERT INTO map_sources (map_id, place_id)
@@ -24,6 +41,20 @@ type AddMapPlaceParams struct {
 
 func (q *Queries) AddMapPlace(ctx context.Context, arg AddMapPlaceParams) error {
 	_, err := q.db.Exec(ctx, addMapPlace, arg.MapID, arg.PlaceSlug)
+	return err
+}
+
+const addMapStreet = `-- name: AddMapStreet :exec
+INSERT INTO map_sources (map_id, street_id) VALUES ($1, $2)
+`
+
+type AddMapStreetParams struct {
+	MapID    int64
+	StreetID *int64
+}
+
+func (q *Queries) AddMapStreet(ctx context.Context, arg AddMapStreetParams) error {
+	_, err := q.db.Exec(ctx, addMapStreet, arg.MapID, arg.StreetID)
 	return err
 }
 
@@ -59,8 +90,64 @@ func (q *Queries) ClearMapSources(ctx context.Context, mapID int64) error {
 	return err
 }
 
+const countPlayerMaps = `-- name: CountPlayerMaps :one
+SELECT count(*)::int FROM maps
+WHERE owner_id = $1 AND deleted_at IS NULL AND slug NOT LIKE 'miss-%'
+`
+
+func (q *Queries) CountPlayerMaps(ctx context.Context, ownerID *uuid.UUID) (int32, error) {
+	row := q.db.QueryRow(ctx, countPlayerMaps, ownerID)
+	var column_1 int32
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
+const createPlayerMap = `-- name: CreatePlayerMap :one
+
+INSERT INTO maps (slug, owner_id, name_uz, visibility, moderation, tags, rules, pick, sort)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 2000)
+RETURNING id
+`
+
+type CreatePlayerMapParams struct {
+	Slug       string
+	OwnerID    *uuid.UUID
+	NameUz     string
+	Visibility string
+	Moderation string
+	Tags       []string
+	Rules      json.RawMessage
+	Pick       json.RawMessage
+}
+
+// ---------- players' maps ----------
+func (q *Queries) CreatePlayerMap(ctx context.Context, arg CreatePlayerMapParams) (int64, error) {
+	row := q.db.QueryRow(ctx, createPlayerMap,
+		arg.Slug,
+		arg.OwnerID,
+		arg.NameUz,
+		arg.Visibility,
+		arg.Moderation,
+		arg.Tags,
+		arg.Rules,
+		arg.Pick,
+	)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
+}
+
+const deletePlayerMap = `-- name: DeletePlayerMap :exec
+UPDATE maps SET deleted_at = now(), updated_at = now() WHERE id = $1
+`
+
+func (q *Queries) DeletePlayerMap(ctx context.Context, id int64) error {
+	_, err := q.db.Exec(ctx, deletePlayerMap, id)
+	return err
+}
+
 const getMap = `-- name: GetMap :one
-SELECT id, slug, owner_id, name_uz, name_ru, name_en, desc_uz, desc_ru, desc_en, visibility, rules, pick, sort, created_at, updated_at FROM maps WHERE id = $1
+SELECT id, slug, owner_id, name_uz, name_ru, name_en, desc_uz, desc_ru, desc_en, visibility, rules, pick, sort, created_at, updated_at, moderation, moderation_note, tags, deleted_at FROM maps WHERE id = $1
 `
 
 func (q *Queries) GetMap(ctx context.Context, id int64) (Map, error) {
@@ -82,12 +169,16 @@ func (q *Queries) GetMap(ctx context.Context, id int64) (Map, error) {
 		&i.Sort,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Moderation,
+		&i.ModerationNote,
+		&i.Tags,
+		&i.DeletedAt,
 	)
 	return i, err
 }
 
 const getMapBySlug = `-- name: GetMapBySlug :one
-SELECT id, slug, owner_id, name_uz, name_ru, name_en, desc_uz, desc_ru, desc_en, visibility, rules, pick, sort, created_at, updated_at FROM maps WHERE slug = $1
+SELECT id, slug, owner_id, name_uz, name_ru, name_en, desc_uz, desc_ru, desc_en, visibility, rules, pick, sort, created_at, updated_at, moderation, moderation_note, tags, deleted_at FROM maps WHERE slug = $1
 `
 
 func (q *Queries) GetMapBySlug(ctx context.Context, slug string) (Map, error) {
@@ -109,12 +200,81 @@ func (q *Queries) GetMapBySlug(ctx context.Context, slug string) (Map, error) {
 		&i.Sort,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Moderation,
+		&i.ModerationNote,
+		&i.Tags,
+		&i.DeletedAt,
 	)
 	return i, err
 }
 
+const libraryPoints = `-- name: LibraryPoints :many
+SELECT DISTINCT ON (floor(ST_X(p.pos) / $1::float8), floor(ST_Y(p.pos) / $1::float8))
+       ST_Y(p.pos)::float8 AS lat, ST_X(p.pos)::float8 AS lon
+FROM panoramas p
+WHERE p.status = 'active' AND p.provider = ANY ($2::text[])
+  AND p.pos && ST_MakeEnvelope($3::float8, $4::float8, $5::float8, $6::float8, 4326)
+LIMIT 800
+`
+
+type LibraryPointsParams struct {
+	Cell      float64
+	Providers []string
+	West      float64
+	South     float64
+	East      float64
+	North     float64
+}
+
+type LibraryPointsRow struct {
+	Lat float64
+	Lon float64
+}
+
+// The library's panoramas in view, thinned to one per grid cell: where a map maker can find streets.
+func (q *Queries) LibraryPoints(ctx context.Context, arg LibraryPointsParams) ([]LibraryPointsRow, error) {
+	rows, err := q.db.Query(ctx, libraryPoints,
+		arg.Cell,
+		arg.Providers,
+		arg.West,
+		arg.South,
+		arg.East,
+		arg.North,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []LibraryPointsRow{}
+	for rows.Next() {
+		var i LibraryPointsRow
+		if err := rows.Scan(&i.Lat, &i.Lon); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const likeMap = `-- name: LikeMap :exec
+INSERT INTO map_likes (map_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING
+`
+
+type LikeMapParams struct {
+	MapID  int64
+	UserID uuid.UUID
+}
+
+func (q *Queries) LikeMap(ctx context.Context, arg LikeMapParams) error {
+	_, err := q.db.Exec(ctx, likeMap, arg.MapID, arg.UserID)
+	return err
+}
+
 const listOfficialMaps = `-- name: ListOfficialMaps :many
-SELECT id, slug, owner_id, name_uz, name_ru, name_en, desc_uz, desc_ru, desc_en, visibility, rules, pick, sort, created_at, updated_at FROM maps WHERE owner_id IS NULL AND visibility = 'public' ORDER BY sort, id
+SELECT id, slug, owner_id, name_uz, name_ru, name_en, desc_uz, desc_ru, desc_en, visibility, rules, pick, sort, created_at, updated_at, moderation, moderation_note, tags, deleted_at FROM maps WHERE owner_id IS NULL AND visibility = 'public' ORDER BY sort, id
 `
 
 func (q *Queries) ListOfficialMaps(ctx context.Context) ([]Map, error) {
@@ -142,6 +302,85 @@ func (q *Queries) ListOfficialMaps(ctx context.Context) ([]Map, error) {
 			&i.Sort,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.Moderation,
+			&i.ModerationNote,
+			&i.Tags,
+			&i.DeletedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const mapAreaShape = `-- name: MapAreaShape :one
+SELECT coalesce(ST_AsGeoJSON(ST_Union(s.area), 5), '')::text FROM map_sources s WHERE s.map_id = $1
+`
+
+// The map's drawn area as GeoJSON, ” when it has none: the map page's small picture.
+func (q *Queries) MapAreaShape(ctx context.Context, mapID int64) (string, error) {
+	row := q.db.QueryRow(ctx, mapAreaShape, mapID)
+	var column_1 string
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
+const mapBoard = `-- name: MapBoard :many
+SELECT u.id, u.name, u.avatar, u.guest, u.created_at, u.last_seen_at, u.banned_at, u.ban_reason, u.prefs, b.id AS game_id, b.total, b.played, (b.total::float8 / b.played)::float8 AS per_round
+FROM (
+    SELECT DISTINCT ON (g.user_id) g.id, g.user_id, g.map_id, g.mode, g.rules, g.size_km, g.seed, g.status, g.total, g.hints_used, g.started_at, g.finished_at, g.played, g.room_code, g.room_game, g.challenge
+    FROM games g
+    WHERE g.map_id = $1 AND g.status = 'finished' AND g.played >= $2::int AND g.played > 0
+    ORDER BY g.user_id, g.total::float8 / g.played DESC, g.finished_at
+) b
+JOIN users u ON u.id = b.user_id
+WHERE u.banned_at IS NULL
+ORDER BY per_round DESC, b.finished_at
+LIMIT 10
+`
+
+type MapBoardParams struct {
+	MapID     int64
+	MinRounds int32
+}
+
+type MapBoardRow struct {
+	User     User
+	GameID   uuid.UUID
+	Total    int32
+	Played   int32
+	PerRound float64
+}
+
+// The map's best players, once each, by points per round: a 3-round game and a 10-round game
+// compare. Games shorter than @min_rounds don't count: one lucky round is not a record.
+func (q *Queries) MapBoard(ctx context.Context, arg MapBoardParams) ([]MapBoardRow, error) {
+	rows, err := q.db.Query(ctx, mapBoard, arg.MapID, arg.MinRounds)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []MapBoardRow{}
+	for rows.Next() {
+		var i MapBoardRow
+		if err := rows.Scan(
+			&i.User.ID,
+			&i.User.Name,
+			&i.User.Avatar,
+			&i.User.Guest,
+			&i.User.CreatedAt,
+			&i.User.LastSeenAt,
+			&i.User.BannedAt,
+			&i.User.BanReason,
+			&i.User.Prefs,
+			&i.GameID,
+			&i.Total,
+			&i.Played,
+			&i.PerRound,
 		); err != nil {
 			return nil, err
 		}
@@ -174,7 +413,8 @@ WHERE p.status = 'active'
   AND ($1::boolean = false OR p.street_id IS NOT NULL)
   AND EXISTS (SELECT 1 FROM map_sources s
               WHERE s.map_id = $2
-                AND (s.place_id = ANY (p.place_ids) OR s.street_id = p.street_id OR s.panorama_id = p.id))
+                AND (s.place_id = ANY (p.place_ids) OR s.street_id = p.street_id OR s.panorama_id = p.id
+                     OR ST_Covers(s.area, p.pos)))
 `
 
 type MapCandidatesParams struct {
@@ -196,7 +436,8 @@ type MapCandidatesRow struct {
 }
 
 // Every active panorama of a map, with the keys the picker groups by. A panorama is in the
-// map if it is inside one of the map's places, on one of its streets, or picked by hand.
+// map if it is inside one of the map's places or its drawn area, on one of its streets, or picked
+// by hand.
 func (q *Queries) MapCandidates(ctx context.Context, arg MapCandidatesParams) ([]MapCandidatesRow, error) {
 	rows, err := q.db.Query(ctx, mapCandidates, arg.StreetsOnly, arg.MapID)
 	if err != nil {
@@ -231,9 +472,10 @@ func (q *Queries) MapCandidates(ctx context.Context, arg MapCandidatesParams) ([
 const mapPlaceExtent = `-- name: MapPlaceExtent :one
 SELECT coalesce(ST_XMin(e), 0)::float8 AS west, coalesce(ST_YMin(e), 0)::float8 AS south,
        coalesce(ST_XMax(e), 0)::float8 AS east, coalesce(ST_YMax(e), 0)::float8 AS north
-FROM (SELECT ST_Extent(pl.geom)::geometry AS e
-      FROM map_sources s JOIN places pl ON pl.id = s.place_id
-      WHERE s.map_id = $1) x
+FROM (SELECT ST_Extent(u.g)::geometry AS e
+      FROM (SELECT pl.geom AS g FROM map_sources s JOIN places pl ON pl.id = s.place_id WHERE s.map_id = $1
+            UNION ALL
+            SELECT s.area FROM map_sources s WHERE s.map_id = $1 AND s.area IS NOT NULL) u) x
 `
 
 type MapPlaceExtentRow struct {
@@ -243,7 +485,7 @@ type MapPlaceExtentRow struct {
 	North float64
 }
 
-// The bounding box of a map's places: its size D for scoring.
+// The bounding box of a map's places and drawn areas: its size D for scoring.
 func (q *Queries) MapPlaceExtent(ctx context.Context, mapID int64) (MapPlaceExtentRow, error) {
 	row := q.db.QueryRow(ctx, mapPlaceExtent, mapID)
 	var i MapPlaceExtentRow
@@ -287,6 +529,425 @@ func (q *Queries) MapPlaces(ctx context.Context, mapID int64) ([]MapPlacesRow, e
 		return nil, err
 	}
 	return items, nil
+}
+
+const mapStats = `-- name: MapStats :one
+SELECT (SELECT count(*) FROM games g WHERE g.map_id = $1)::int AS plays,
+       (SELECT count(*) FROM map_likes l WHERE l.map_id = $1)::int AS likes,
+       EXISTS (SELECT 1 FROM map_likes l WHERE l.map_id = $1 AND l.user_id = $2) AS liked
+`
+
+type MapStatsParams struct {
+	MapID  int64
+	UserID uuid.UUID
+}
+
+type MapStatsRow struct {
+	Plays int32
+	Likes int32
+	Liked bool
+}
+
+func (q *Queries) MapStats(ctx context.Context, arg MapStatsParams) (MapStatsRow, error) {
+	row := q.db.QueryRow(ctx, mapStats, arg.MapID, arg.UserID)
+	var i MapStatsRow
+	err := row.Scan(&i.Plays, &i.Likes, &i.Liked)
+	return i, err
+}
+
+const mapStreetPoints = `-- name: MapStreetPoints :many
+SELECT ST_Y(p.pos)::float8 AS lat, ST_X(p.pos)::float8 AS lon
+FROM map_sources s
+JOIN panoramas p ON p.street_id = s.street_id
+WHERE s.map_id = $1 AND p.status = 'active' AND p.provider = ANY ($2::text[])
+LIMIT 400
+`
+
+type MapStreetPointsParams struct {
+	MapID     int64
+	Providers []string
+}
+
+type MapStreetPointsRow struct {
+	Lat float64
+	Lon float64
+}
+
+// Where a map's picked streets run, as their panoramas: the map page's small picture.
+func (q *Queries) MapStreetPoints(ctx context.Context, arg MapStreetPointsParams) ([]MapStreetPointsRow, error) {
+	rows, err := q.db.Query(ctx, mapStreetPoints, arg.MapID, arg.Providers)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []MapStreetPointsRow{}
+	for rows.Next() {
+		var i MapStreetPointsRow
+		if err := rows.Scan(&i.Lat, &i.Lon); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const moderateMap = `-- name: ModerateMap :execrows
+UPDATE maps SET moderation = $1, moderation_note = $2, updated_at = now()
+WHERE slug = $3 AND moderation = 'pending' AND deleted_at IS NULL
+`
+
+type ModerateMapParams struct {
+	Moderation     string
+	ModerationNote string
+	Slug           string
+}
+
+func (q *Queries) ModerateMap(ctx context.Context, arg ModerateMapParams) (int64, error) {
+	result, err := q.db.Exec(ctx, moderateMap, arg.Moderation, arg.ModerationNote, arg.Slug)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const moderationQueue = `-- name: ModerationQueue :many
+SELECT m.slug, m.name_uz, m.tags, m.updated_at, u.name AS owner_name,
+       (SELECT count(*) FROM map_sources s WHERE s.map_id = m.id)::int AS sources
+FROM maps m
+JOIN users u ON u.id = m.owner_id
+WHERE m.moderation = 'pending' AND m.deleted_at IS NULL
+ORDER BY m.updated_at
+LIMIT 100
+`
+
+type ModerationQueueRow struct {
+	Slug      string
+	NameUz    string
+	Tags      []string
+	UpdatedAt time.Time
+	OwnerName string
+	Sources   int32
+}
+
+// Oldest first, with who made it and how much it holds.
+func (q *Queries) ModerationQueue(ctx context.Context) ([]ModerationQueueRow, error) {
+	rows, err := q.db.Query(ctx, moderationQueue)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ModerationQueueRow{}
+	for rows.Next() {
+		var i ModerationQueueRow
+		if err := rows.Scan(
+			&i.Slug,
+			&i.NameUz,
+			&i.Tags,
+			&i.UpdatedAt,
+			&i.OwnerName,
+			&i.Sources,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const myMaps = `-- name: MyMaps :many
+SELECT m.id, m.slug, m.owner_id, m.name_uz, m.name_ru, m.name_en, m.desc_uz, m.desc_ru, m.desc_en, m.visibility, m.rules, m.pick, m.sort, m.created_at, m.updated_at, m.moderation, m.moderation_note, m.tags, m.deleted_at,
+       (SELECT count(*) FROM games g WHERE g.map_id = m.id)::int AS plays,
+       (SELECT count(*) FROM map_likes l WHERE l.map_id = m.id)::int AS likes
+FROM maps m
+WHERE m.owner_id = $1 AND m.deleted_at IS NULL AND m.slug NOT LIKE 'miss-%'
+ORDER BY m.created_at DESC
+LIMIT 100
+`
+
+type MyMapsRow struct {
+	ID             int64
+	Slug           string
+	OwnerID        *uuid.UUID
+	NameUz         string
+	NameRu         string
+	NameEn         string
+	DescUz         string
+	DescRu         string
+	DescEn         string
+	Visibility     string
+	Rules          json.RawMessage
+	Pick           json.RawMessage
+	Sort           int32
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
+	Moderation     string
+	ModerationNote string
+	Tags           []string
+	DeletedAt      *time.Time
+	Plays          int32
+	Likes          int32
+}
+
+func (q *Queries) MyMaps(ctx context.Context, ownerID *uuid.UUID) ([]MyMapsRow, error) {
+	rows, err := q.db.Query(ctx, myMaps, ownerID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []MyMapsRow{}
+	for rows.Next() {
+		var i MyMapsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Slug,
+			&i.OwnerID,
+			&i.NameUz,
+			&i.NameRu,
+			&i.NameEn,
+			&i.DescUz,
+			&i.DescRu,
+			&i.DescEn,
+			&i.Visibility,
+			&i.Rules,
+			&i.Pick,
+			&i.Sort,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.Moderation,
+			&i.ModerationNote,
+			&i.Tags,
+			&i.DeletedAt,
+			&i.Plays,
+			&i.Likes,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const namedStreets = `-- name: NamedStreets :many
+SELECT s.id, s.name_uz, s.name_ru, count(p.id)::int AS panoramas
+FROM streets s
+JOIN panoramas p ON p.street_id = s.id AND p.status = 'active' AND p.provider = ANY ($1::text[])
+GROUP BY s.id
+ORDER BY s.name_uz
+`
+
+type NamedStreetsRow struct {
+	ID        int64
+	NameUz    string
+	NameRu    string
+	Panoramas int32
+}
+
+// Every named street with panoramas on the players' providers, for the map maker.
+func (q *Queries) NamedStreets(ctx context.Context, providers []string) ([]NamedStreetsRow, error) {
+	rows, err := q.db.Query(ctx, namedStreets, providers)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []NamedStreetsRow{}
+	for rows.Next() {
+		var i NamedStreetsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.NameUz,
+			&i.NameRu,
+			&i.Panoramas,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const previewSources = `-- name: PreviewSources :one
+SELECT count(*)::int AS panoramas, count(DISTINCT p.street_id)::int AS streets
+FROM panoramas p
+WHERE p.status = 'active' AND p.provider = ANY ($1::text[])
+  AND (p.place_ids && coalesce((SELECT array_agg(pl.id) FROM places pl WHERE pl.slug = ANY ($2::text[])), '{}')
+       OR p.street_id = ANY ($3::bigint[])
+       OR ($4::text <> '' AND ST_Covers(
+             ST_MakeValid(ST_SetSRID(ST_GeomFromGeoJSON(nullif($4::text, '')), 4326)), p.pos)))
+`
+
+type PreviewSourcesParams struct {
+	Providers []string
+	Places    []string
+	Streets   []int64
+	Area      string
+}
+
+type PreviewSourcesRow struct {
+	Panoramas int32
+	Streets   int32
+}
+
+// What a map made of these would hold, on the players' providers. @area is GeoJSON or ”.
+func (q *Queries) PreviewSources(ctx context.Context, arg PreviewSourcesParams) (PreviewSourcesRow, error) {
+	row := q.db.QueryRow(ctx, previewSources,
+		arg.Providers,
+		arg.Places,
+		arg.Streets,
+		arg.Area,
+	)
+	var i PreviewSourcesRow
+	err := row.Scan(&i.Panoramas, &i.Streets)
+	return i, err
+}
+
+const searchMaps = `-- name: SearchMaps :many
+SELECT m.id, m.slug, m.owner_id, m.name_uz, m.name_ru, m.name_en, m.desc_uz, m.desc_ru, m.desc_en, m.visibility, m.rules, m.pick, m.sort, m.created_at, m.updated_at, m.moderation, m.moderation_note, m.tags, m.deleted_at,
+       (SELECT count(*) FROM games g WHERE g.map_id = m.id)::int AS plays,
+       (SELECT count(*) FROM map_likes l WHERE l.map_id = m.id)::int AS likes,
+       count(*) OVER ()::int AS total
+FROM maps m
+WHERE m.deleted_at IS NULL AND m.visibility = 'public'
+  AND (m.owner_id IS NULL OR m.moderation = 'approved')
+  AND ($1::text = '' OR translate(m.name_uz, '''’ʻʼ` + "`" + `', '‘‘‘‘‘') ILIKE '%' || $1::text || '%'
+       OR m.name_ru ILIKE '%' || $1::text || '%' OR m.name_en ILIKE '%' || $1::text || '%')
+  AND ($2::text = '' OR $2::text = ANY (m.tags))
+ORDER BY plays DESC, likes DESC, m.sort, m.created_at DESC
+LIMIT $4 OFFSET $3
+`
+
+type SearchMapsParams struct {
+	Q   string
+	Tag string
+	Off int32
+	Lim int32
+}
+
+type SearchMapsRow struct {
+	ID             int64
+	Slug           string
+	OwnerID        *uuid.UUID
+	NameUz         string
+	NameRu         string
+	NameEn         string
+	DescUz         string
+	DescRu         string
+	DescEn         string
+	Visibility     string
+	Rules          json.RawMessage
+	Pick           json.RawMessage
+	Sort           int32
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
+	Moderation     string
+	ModerationNote string
+	Tags           []string
+	DeletedAt      *time.Time
+	Plays          int32
+	Likes          int32
+	Total          int32
+}
+
+// The listed maps: official ones, and players' public ones a person has approved. Most played
+// first. Names compare with every apostrophe as the game writes it, o‘.
+func (q *Queries) SearchMaps(ctx context.Context, arg SearchMapsParams) ([]SearchMapsRow, error) {
+	rows, err := q.db.Query(ctx, searchMaps,
+		arg.Q,
+		arg.Tag,
+		arg.Off,
+		arg.Lim,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []SearchMapsRow{}
+	for rows.Next() {
+		var i SearchMapsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Slug,
+			&i.OwnerID,
+			&i.NameUz,
+			&i.NameRu,
+			&i.NameEn,
+			&i.DescUz,
+			&i.DescRu,
+			&i.DescEn,
+			&i.Visibility,
+			&i.Rules,
+			&i.Pick,
+			&i.Sort,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.Moderation,
+			&i.ModerationNote,
+			&i.Tags,
+			&i.DeletedAt,
+			&i.Plays,
+			&i.Likes,
+			&i.Total,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const unlikeMap = `-- name: UnlikeMap :exec
+DELETE FROM map_likes WHERE map_id = $1 AND user_id = $2
+`
+
+type UnlikeMapParams struct {
+	MapID  int64
+	UserID uuid.UUID
+}
+
+func (q *Queries) UnlikeMap(ctx context.Context, arg UnlikeMapParams) error {
+	_, err := q.db.Exec(ctx, unlikeMap, arg.MapID, arg.UserID)
+	return err
+}
+
+const updatePlayerMap = `-- name: UpdatePlayerMap :exec
+UPDATE maps SET name_uz = $1, name_ru = '', name_en = '', visibility = $2,
+    moderation = $3, moderation_note = $4, tags = $5, updated_at = now()
+WHERE id = $6
+`
+
+type UpdatePlayerMapParams struct {
+	NameUz         string
+	Visibility     string
+	Moderation     string
+	ModerationNote string
+	Tags           []string
+	ID             int64
+}
+
+func (q *Queries) UpdatePlayerMap(ctx context.Context, arg UpdatePlayerMapParams) error {
+	_, err := q.db.Exec(ctx, updatePlayerMap,
+		arg.NameUz,
+		arg.Visibility,
+		arg.Moderation,
+		arg.ModerationNote,
+		arg.Tags,
+		arg.ID,
+	)
+	return err
 }
 
 const upsertMissMap = `-- name: UpsertMissMap :one

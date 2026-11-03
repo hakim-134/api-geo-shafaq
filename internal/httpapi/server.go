@@ -118,7 +118,7 @@ func fail(w http.ResponseWriter, r *http.Request, err error) {
 	switch {
 	case errors.Is(err, game.ErrNotFound), errors.Is(err, maps.ErrNotFound), errors.Is(err, players.ErrNotFound):
 		status, code = http.StatusNotFound, "not_found"
-	case errors.Is(err, game.ErrBadInput), errors.Is(err, players.ErrBadAvatar), errors.Is(err, players.ErrBadPrefs):
+	case errors.Is(err, game.ErrBadInput), errors.Is(err, players.ErrBadAvatar), errors.Is(err, players.ErrBadPrefs), errors.Is(err, maps.ErrBadMap):
 		status, code = http.StatusBadRequest, "bad_input"
 	case errors.Is(err, players.ErrBadName):
 		status, code = http.StatusBadRequest, "bad_name"
@@ -126,6 +126,8 @@ func fail(w http.ResponseWriter, r *http.Request, err error) {
 		status, code = http.StatusConflict, "last_identity"
 	case errors.Is(err, auth.ErrBadLogin):
 		status, code = http.StatusUnauthorized, "bad_login"
+	case errors.Is(err, maps.ErrTooFew), errors.Is(err, maps.ErrTooMany):
+		status, code = http.StatusConflict, err.Error()
 	case errors.Is(err, game.ErrWrongPhase), errors.Is(err, game.ErrGameOver), errors.Is(err, game.ErrTooFar),
 		errors.Is(err, game.ErrNoHints), errors.Is(err, game.ErrTooManyFails):
 		status, code = http.StatusConflict, err.Error()

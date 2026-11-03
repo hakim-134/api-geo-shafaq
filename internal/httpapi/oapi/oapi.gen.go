@@ -17,25 +17,25 @@ import (
 
 // Defines values for AuthResultStatus.
 const (
-	Already  AuthResultStatus = "already"
-	Linked   AuthResultStatus = "linked"
-	Merge    AuthResultStatus = "merge"
-	Pending  AuthResultStatus = "pending"
-	SignedIn AuthResultStatus = "signed_in"
+	AuthResultStatusAlready  AuthResultStatus = "already"
+	AuthResultStatusLinked   AuthResultStatus = "linked"
+	AuthResultStatusMerge    AuthResultStatus = "merge"
+	AuthResultStatusPending  AuthResultStatus = "pending"
+	AuthResultStatusSignedIn AuthResultStatus = "signed_in"
 )
 
 // Valid indicates whether the value is a known member of the AuthResultStatus enum.
 func (e AuthResultStatus) Valid() bool {
 	switch e {
-	case Already:
+	case AuthResultStatusAlready:
 		return true
-	case Linked:
+	case AuthResultStatusLinked:
 		return true
-	case Merge:
+	case AuthResultStatusMerge:
 		return true
-	case Pending:
+	case AuthResultStatusPending:
 		return true
-	case SignedIn:
+	case AuthResultStatusSignedIn:
 		return true
 	default:
 		return false
@@ -135,6 +135,51 @@ func (e IdentityProvider) Valid() bool {
 	case Google:
 		return true
 	case Telegram:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for MapModeration.
+const (
+	MapModerationApproved MapModeration = "approved"
+	MapModerationNone     MapModeration = "none"
+	MapModerationPending  MapModeration = "pending"
+	MapModerationRejected MapModeration = "rejected"
+)
+
+// Valid indicates whether the value is a known member of the MapModeration enum.
+func (e MapModeration) Valid() bool {
+	switch e {
+	case MapModerationApproved:
+		return true
+	case MapModerationNone:
+		return true
+	case MapModerationPending:
+		return true
+	case MapModerationRejected:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for MapVisibility.
+const (
+	Private  MapVisibility = "private"
+	Public   MapVisibility = "public"
+	Unlisted MapVisibility = "unlisted"
+)
+
+// Valid indicates whether the value is a known member of the MapVisibility enum.
+func (e MapVisibility) Valid() bool {
+	switch e {
+	case Private:
+		return true
+	case Public:
+		return true
+	case Unlisted:
 		return true
 	default:
 		return false
@@ -604,6 +649,15 @@ type LatLon struct {
 	Lon float64 `json:"lon"`
 }
 
+// LibraryStreet defines model for LibraryStreet.
+type LibraryStreet struct {
+	Id int64 `json:"id"`
+
+	// Name A name in the three languages. `ru` and `en` fall back to `uz` (street signs are in Uzbek Latin).
+	Name      Text `json:"name"`
+	Panoramas int  `json:"panoramas"`
+}
+
 // MapBest defines model for MapBest.
 type MapBest struct {
 	// Best Total of the best game (best per round).
@@ -616,11 +670,93 @@ type MapBest struct {
 	Rounds int `json:"rounds"`
 }
 
+// MapBoardRow defines model for MapBoardRow.
+type MapBoardRow struct {
+	Game openapi_types.UUID `json:"game"`
+
+	// PerRound Points per round in the player's best game here.
+	PerRound int        `json:"perRound"`
+	Place    int        `json:"place"`
+	Player   PublicUser `json:"player"`
+}
+
+// MapCard defines model for MapCard.
+type MapCard struct {
+	// Description A name in the three languages. `ru` and `en` fall back to `uz` (street signs are in Uzbek Latin).
+	Description Text `json:"description"`
+	Likes       int  `json:"likes"`
+
+	// Moderation none: not public. pending: waits for a person; plays by its link. approved: listed. rejected: not listed.
+	Moderation MapModeration `json:"moderation"`
+
+	// Name A name in the three languages. `ru` and `en` fall back to `uz` (street signs are in Uzbek Latin).
+	Name       Text          `json:"name"`
+	Official   bool          `json:"official"`
+	Panoramas  int           `json:"panoramas"`
+	Plays      int           `json:"plays"`
+	Slug       string        `json:"slug"`
+	Tags       []string      `json:"tags"`
+	Visibility MapVisibility `json:"visibility"`
+}
+
+// MapModeration none: not public. pending: waits for a person; plays by its link. approved: listed. rejected: not listed.
+type MapModeration string
+
+// MapPage defines model for MapPage.
+type MapPage struct {
+	// Area The drawn area as a GeoJSON geometry, when the map has one.
+	Area  *map[string]interface{} `json:"area,omitempty"`
+	Board []MapBoardRow           `json:"board"`
+	By    *PublicUser             `json:"by,omitempty"`
+
+	// Liked This player likes it.
+	Liked bool       `json:"liked"`
+	Likes int        `json:"likes"`
+	Map   MapSummary `json:"map"`
+
+	// Mine This player made it.
+	Mine bool `json:"mine"`
+
+	// Moderation none: not public. pending: waits for a person; plays by its link. approved: listed. rejected: not listed.
+	Moderation MapModeration `json:"moderation"`
+
+	// ModerationNote Why it was rejected; its owner only.
+	ModerationNote *string `json:"moderationNote,omitempty"`
+
+	// Plays Games started on it.
+	Plays int `json:"plays"`
+
+	// StreetPoints Where its picked streets run: [lat, lon] of their panoramas.
+	StreetPoints *[][]float64  `json:"streetPoints,omitempty"`
+	Tags         []string      `json:"tags"`
+	Visibility   MapVisibility `json:"visibility"`
+}
+
+// MapPreview defines model for MapPreview.
+type MapPreview struct {
+	Panoramas int `json:"panoramas"`
+	Streets   int `json:"streets"`
+}
+
 // MapRef defines model for MapRef.
 type MapRef struct {
 	// Name A name in the three languages. `ru` and `en` fall back to `uz` (street signs are in Uzbek Latin).
 	Name Text   `json:"name"`
 	Slug string `json:"slug"`
+}
+
+// MapSearch defines model for MapSearch.
+type MapSearch struct {
+	Maps  []MapCard `json:"maps"`
+	Total int       `json:"total"`
+}
+
+// MapSources defines model for MapSources.
+type MapSources struct {
+	// Area A drawn loop of [lat, lon].
+	Area    *[][]float64 `json:"area,omitempty"`
+	Places  *[]string    `json:"places,omitempty"`
+	Streets *[]int64     `json:"streets,omitempty"`
 }
 
 // MapSummary defines model for MapSummary.
@@ -672,6 +808,16 @@ type MapSummary struct {
 	// Slug Example: tashkent-streets
 	Slug string `json:"slug"`
 }
+
+// MapUpdate defines model for MapUpdate.
+type MapUpdate struct {
+	Name       string        `json:"name"`
+	Tags       []string      `json:"tags"`
+	Visibility MapVisibility `json:"visibility"`
+}
+
+// MapVisibility defines model for MapVisibility.
+type MapVisibility string
 
 // Me defines model for Me.
 type Me struct {
@@ -735,6 +881,17 @@ type MyStreets struct {
 
 	// Total Streets in the game.
 	Total int `json:"total"`
+}
+
+// NewMap defines model for NewMap.
+type NewMap struct {
+	// Area A drawn loop of [lat, lon].
+	Area       *[][]float64  `json:"area,omitempty"`
+	Name       string        `json:"name"`
+	Places     *[]string     `json:"places,omitempty"`
+	Streets    *[]int64      `json:"streets,omitempty"`
+	Tags       *[]string     `json:"tags,omitempty"`
+	Visibility MapVisibility `json:"visibility"`
 }
 
 // PanoView What the browser's viewer needs for this round, and nothing more.
@@ -1318,6 +1475,21 @@ type TelegramWebAppLoginJSONBody struct {
 	InitData string `json:"initData"`
 }
 
+// LibraryPointsParams defines parameters for LibraryPoints.
+type LibraryPointsParams struct {
+	West  float64 `form:"west" json:"west"`
+	South float64 `form:"south" json:"south"`
+	East  float64 `form:"east" json:"east"`
+	North float64 `form:"north" json:"north"`
+}
+
+// SearchMapsParams defines parameters for SearchMaps.
+type SearchMapsParams struct {
+	Q    *string `form:"q,omitempty" json:"q,omitempty"`
+	Tag  *string `form:"tag,omitempty" json:"tag,omitempty"`
+	Page *int    `form:"page,omitempty" json:"page,omitempty"`
+}
+
 // ListMyGamesParams defines parameters for ListMyGames.
 type ListMyGamesParams struct {
 	// Before Cursor; the `next` value of the previous page.
@@ -1380,6 +1552,15 @@ type GuessJSONRequestBody = GuessRequest
 
 // RoundShownJSONRequestBody defines body for RoundShown for application/json ContentType.
 type RoundShownJSONRequestBody = RoundShown
+
+// CreateMapJSONRequestBody defines body for CreateMap for application/json ContentType.
+type CreateMapJSONRequestBody = NewMap
+
+// PreviewMapJSONRequestBody defines body for PreviewMap for application/json ContentType.
+type PreviewMapJSONRequestBody = MapSources
+
+// UpdateMapJSONRequestBody defines body for UpdateMap for application/json ContentType.
+type UpdateMapJSONRequestBody = MapUpdate
 
 // UnlinkIdentityJSONRequestBody defines body for UnlinkIdentity for application/json ContentType.
 type UnlinkIdentityJSONRequestBody UnlinkIdentityJSONBody
@@ -1485,12 +1666,42 @@ type ServerInterface interface {
 	// GetHealth The process is up.
 	// (GET /v1/health)
 	GetHealth(w http.ResponseWriter, r *http.Request)
+	// LibraryPoints Where the library has panoramas in this box, thinned; the map maker's dots.
+	// (GET /v1/library/points)
+	LibraryPoints(w http.ResponseWriter, r *http.Request, params LibraryPointsParams)
+	// LibraryStreets The named streets with panoramas; the map maker's list.
+	// (GET /v1/library/streets)
+	LibraryStreets(w http.ResponseWriter, r *http.Request)
 	// ListMaps The maps on the menu.
 	// (GET /v1/maps)
 	ListMaps(w http.ResponseWriter, r *http.Request)
+	// CreateMap Make a map from places, a drawn area and streets; the library fills it.
+	// (POST /v1/maps)
+	CreateMap(w http.ResponseWriter, r *http.Request)
+	// PreviewMap How many panoramas a map made of these would hold.
+	// (POST /v1/maps/preview)
+	PreviewMap(w http.ResponseWriter, r *http.Request)
+	// SearchMaps The listed maps, most played first; by name, by tag.
+	// (GET /v1/maps/search)
+	SearchMaps(w http.ResponseWriter, r *http.Request, params SearchMapsParams)
+	// DeleteMap The owner deletes a map. Games already played keep it.
+	// (DELETE /v1/maps/{slug})
+	DeleteMap(w http.ResponseWriter, r *http.Request, slug Slug)
 
 	// (GET /v1/maps/{slug})
 	GetMap(w http.ResponseWriter, r *http.Request, slug Slug)
+	// UpdateMap The owner changes a map's name, who sees it, its tags.
+	// (PATCH /v1/maps/{slug})
+	UpdateMap(w http.ResponseWriter, r *http.Request, slug Slug)
+
+	// (DELETE /v1/maps/{slug}/like)
+	UnlikeMap(w http.ResponseWriter, r *http.Request, slug Slug)
+
+	// (PUT /v1/maps/{slug}/like)
+	LikeMap(w http.ResponseWriter, r *http.Request, slug Slug)
+	// GetMapPage A map's page. plays, likes, best scores, tags.
+	// (GET /v1/maps/{slug}/page)
+	GetMapPage(w http.ResponseWriter, r *http.Request, slug Slug)
 
 	// (GET /v1/me)
 	GetMe(w http.ResponseWriter, r *http.Request)
@@ -1500,6 +1711,9 @@ type ServerInterface interface {
 	// UnlinkIdentity Removes a way to sign in. The last one stays (`last_identity`).
 	// (POST /v1/me/identities/unlink)
 	UnlinkIdentity(w http.ResponseWriter, r *http.Request)
+	// ListMyMaps The maps the player made.
+	// (GET /v1/me/maps)
+	ListMyMaps(w http.ResponseWriter, r *http.Request)
 	// GetMissedStreets The streets the player has not learned, worst first, and the map that plays them.
 	// (GET /v1/me/missed)
 	GetMissedStreets(w http.ResponseWriter, r *http.Request)
@@ -2069,11 +2283,210 @@ func (siw *ServerInterfaceWrapper) GetHealth(w http.ResponseWriter, r *http.Requ
 	handler.ServeHTTP(w, r)
 }
 
+// LibraryPoints operation middleware
+func (siw *ServerInterfaceWrapper) LibraryPoints(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params LibraryPointsParams
+
+	// ------------- Required query parameter "west" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, true, "west", r.URL.Query(), &params.West, runtime.BindQueryParameterOptions{Type: "number", Format: "double"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "west"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "west", Err: err})
+		}
+		return
+	}
+
+	// ------------- Required query parameter "south" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, true, "south", r.URL.Query(), &params.South, runtime.BindQueryParameterOptions{Type: "number", Format: "double"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "south"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "south", Err: err})
+		}
+		return
+	}
+
+	// ------------- Required query parameter "east" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, true, "east", r.URL.Query(), &params.East, runtime.BindQueryParameterOptions{Type: "number", Format: "double"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "east"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "east", Err: err})
+		}
+		return
+	}
+
+	// ------------- Required query parameter "north" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, true, "north", r.URL.Query(), &params.North, runtime.BindQueryParameterOptions{Type: "number", Format: "double"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "north"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "north", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.LibraryPoints(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// LibraryStreets operation middleware
+func (siw *ServerInterfaceWrapper) LibraryStreets(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.LibraryStreets(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ListMaps operation middleware
 func (siw *ServerInterfaceWrapper) ListMaps(w http.ResponseWriter, r *http.Request) {
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.ListMaps(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateMap operation middleware
+func (siw *ServerInterfaceWrapper) CreateMap(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateMap(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// PreviewMap operation middleware
+func (siw *ServerInterfaceWrapper) PreviewMap(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.PreviewMap(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// SearchMaps operation middleware
+func (siw *ServerInterfaceWrapper) SearchMaps(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params SearchMapsParams
+
+	// ------------- Optional query parameter "q" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "q", r.URL.Query(), &params.Q, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "q"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "q", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "tag" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "tag", r.URL.Query(), &params.Tag, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "tag"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "tag", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "page" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "page", r.URL.Query(), &params.Page, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "page"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "page", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.SearchMaps(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeleteMap operation middleware
+func (siw *ServerInterfaceWrapper) DeleteMap(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "slug" -------------
+	var slug Slug
+
+	err = runtime.BindStyledParameterWithOptions("simple", "slug", r.PathValue("slug"), &slug, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "slug", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteMap(w, r, slug)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -2100,6 +2513,110 @@ func (siw *ServerInterfaceWrapper) GetMap(w http.ResponseWriter, r *http.Request
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetMap(w, r, slug)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UpdateMap operation middleware
+func (siw *ServerInterfaceWrapper) UpdateMap(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "slug" -------------
+	var slug Slug
+
+	err = runtime.BindStyledParameterWithOptions("simple", "slug", r.PathValue("slug"), &slug, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "slug", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpdateMap(w, r, slug)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UnlikeMap operation middleware
+func (siw *ServerInterfaceWrapper) UnlikeMap(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "slug" -------------
+	var slug Slug
+
+	err = runtime.BindStyledParameterWithOptions("simple", "slug", r.PathValue("slug"), &slug, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "slug", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UnlikeMap(w, r, slug)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// LikeMap operation middleware
+func (siw *ServerInterfaceWrapper) LikeMap(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "slug" -------------
+	var slug Slug
+
+	err = runtime.BindStyledParameterWithOptions("simple", "slug", r.PathValue("slug"), &slug, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "slug", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.LikeMap(w, r, slug)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetMapPage operation middleware
+func (siw *ServerInterfaceWrapper) GetMapPage(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "slug" -------------
+	var slug Slug
+
+	err = runtime.BindStyledParameterWithOptions("simple", "slug", r.PathValue("slug"), &slug, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "slug", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetMapPage(w, r, slug)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -2187,6 +2704,20 @@ func (siw *ServerInterfaceWrapper) UnlinkIdentity(w http.ResponseWriter, r *http
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.UnlinkIdentity(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListMyMaps operation middleware
+func (siw *ServerInterfaceWrapper) ListMyMaps(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListMyMaps(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -3035,6 +3566,7 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/me/games", wrapper.ListMyGames)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/me/streets", wrapper.ListMyStreets)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/me/missed", wrapper.GetMissedStreets)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/me/maps", wrapper.ListMyMaps)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/config", wrapper.GetConfig)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/auth/telegram/start", wrapper.StartTelegramLogin)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/auth/telegram/check", wrapper.CheckTelegramLogin)
@@ -3049,7 +3581,17 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/users/{userId}", wrapper.GetProfile)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/users/{userId}/report", wrapper.ReportUser)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/maps", wrapper.ListMaps)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/maps", wrapper.CreateMap)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/maps/preview", wrapper.PreviewMap)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/maps/search", wrapper.SearchMaps)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/library/points", wrapper.LibraryPoints)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/library/streets", wrapper.LibraryStreets)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/v1/maps/{slug}", wrapper.DeleteMap)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/maps/{slug}", wrapper.GetMap)
+	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/v1/maps/{slug}", wrapper.UpdateMap)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/maps/{slug}/page", wrapper.GetMapPage)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/v1/maps/{slug}/like", wrapper.UnlikeMap)
+	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/v1/maps/{slug}/like", wrapper.LikeMap)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/places/{slug}", wrapper.GetPlace)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/places/{slug}/shape", wrapper.GetPlaceShape)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/places/{slug}/map", wrapper.GetPlaceMap)

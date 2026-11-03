@@ -23,8 +23,11 @@ import (
 
 var ErrNotFound = errors.New("map not found")
 
-// maxCached is how many maps stay in memory before old ones go: there's one missed map per player.
-const maxCached = 500
+const (
+	maxCached = 500
+	// A mahalla is a kilometre or two: on its own size a guess 100 m off would score next to nothing.
+	minPlayerSizeKm = 5
+)
 
 // Map is a playable map with its panoramas, ready for picking rounds.
 type Map struct {
@@ -43,11 +46,15 @@ type Map struct {
 	Places   []int64         // the map's places, largest first
 	Owner    *uuid.UUID      // a player's map: who made it
 	Private  bool            // only its owner plays it
+	Deleted  bool            // its owner deleted it; games already played keep it
 }
 
-// Open says whether this player may see and start this map. A private map answers not found to
-// everyone else: nobody learns it exists.
+// Open says whether this player may see and start this map. Private and deleted maps answer
+// not found to everyone else: nobody learns they exist.
 func (m *Map) Open(player uuid.UUID) bool {
+	if m.Deleted {
+		return false
+	}
 	return !m.Private || (m.Owner != nil && *m.Owner == player)
 }
 
@@ -168,7 +175,7 @@ func (c *Catalog) Get(ctx context.Context, slug string) (*Map, error) {
 		return nil, err
 	}
 	c.mu.Lock()
-	// missed maps come and go: what hasn't been read lately doesn't stay in memory
+	// players' maps come and go: what hasn't been read lately doesn't stay in memory
 	if len(c.entries) > maxCached {
 		for k, e := range c.entries {
 			if time.Since(e.loaded) >= c.ttl {
@@ -210,6 +217,7 @@ func (c *Catalog) load(ctx context.Context, slug string) (*Map, error) {
 		groups:   map[int64][]int{},
 		Owner:    row.OwnerID,
 		Private:  row.Visibility == "private",
+		Deleted:  row.DeletedAt != nil,
 	}
 	if err := json.Unmarshal(row.Rules, &m.Rules); err != nil {
 		return nil, fmt.Errorf("map %s rules: %w", slug, err)
@@ -262,11 +270,32 @@ func (c *Catalog) load(ctx context.Context, slug string) (*Map, error) {
 	}
 	if len(mp) == 1 {
 		m.Outline = mp[0].OutlineSvg
+	} else if len(mp) == 0 && m.Owner != nil {
+		// a drawn map's sign carries the loop its player drew
+		shape, err := c.q.MapAreaShape(ctx, row.ID)
+		if err != nil {
+			return nil, err
+		}
+		if shape != "" {
+			if m.Outline, err = places.OutlineSVG(shape); err != nil {
+				return nil, err
+			}
+		}
 	}
 	if m.Pick.StreetsOnly && pbox != (geo.BBox{}) {
 		// a street map opens on its streets, not on the whole city
 		const pad = 0.01
 		m.BBox = geo.BBox{pbox[0] - pad, pbox[1] - pad, pbox[2] + pad, pbox[3] + pad}
+	}
+	if m.Owner != nil && !m.Pick.StreetsOnly && pbox != (geo.BBox{}) {
+		// a player's map mixes places, an area and streets: all of it in view, with a little room
+		const pad = 0.003
+		m.BBox = m.BBox.Extend(geo.Point{Lat: pbox[1], Lon: pbox[0]}).Extend(geo.Point{Lat: pbox[3], Lon: pbox[2]})
+		m.BBox = geo.BBox{m.BBox[0] - pad, m.BBox[1] - pad, m.BBox[2] + pad, m.BBox[3] + pad}
+		m.SizeKm = m.BBox.Diagonal()
+	}
+	if m.Owner != nil {
+		m.SizeKm = max(m.SizeKm, minPlayerSizeKm)
 	}
 	if m.Pick.Frame != "" {
 		// the box must not give the answer away: one missed street left would frame that street

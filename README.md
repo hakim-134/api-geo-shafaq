@@ -40,7 +40,7 @@ container, migrations at start, then the worker and the API on :8131).
 | `cmd/api` | the HTTP API |
 | `cmd/worker` | background jobs (River, in Postgres): Yandex usage warning, cleanup; the players' Telegram bot |
 | `cmd/roomsim` | plays a live room with many players against a running API (`go run ./cmd/roomsim`); redeploy meanwhile and the room should just finish |
-| `cmd/tools` | `migrate`, `places`, `v0`, `demo`, `maps`, `tag`, `stats`, `google`, `setup`; `reports`, `ban`, `unban` (moderation) |
+| `cmd/tools` | `migrate`, `places`, `v0`, `demo`, `maps`, `tag`, `stats`, `google`, `setup`; `reports`, `ban`, `unban`, `queue`, `approve`, `reject` (moderation) |
 | `internal/game` | solo games: round picking, the clock, hints, scoring; challenges (`challenge.go`): fixed panoramas, one try each, a leaderboard |
 | `internal/card` | draws a challenge's picture for link previews (`card.png`), in the game's fonts |
 | `internal/room` | live rooms: the room in memory, saved to Valkey after every change; each player's rounds saved as their own game |
@@ -161,11 +161,19 @@ districts (a region), regions (the country) or single spots. Seen = played a rou
 learned = a street or spot guessed within 500 m, a district or region with the pin inside it.
 Maps of one place carry the same progress, and the place around it (`parent`) for "go wider".
 
-## Streets I miss
+## Players' maps
 
-Each player's private `miss-<id>` map. `POST /v1/games` on it rewrites its sources to the streets been on
-and not yet guessed within 500 m (`SyncMissed`), and `Pick.Frame` plays it on the street map's box and
-size, so the box can't give the last street away. `GET /v1/me/missed` is the list. Its games set no record.
+A player's map is a `maps` row with an owner and `map_sources`: places, streets and a drawn area
+(`internal/maps/player.go`; [decision 0019](https://github.com/hakim-134/_geoshafaq_claude/blob/main/decisions/0019-player-maps.md)).
+`POST /v1/maps/preview` says how many panoramas the library fills it with; `POST /v1/maps` makes it, at
+least 3. Private maps answer "not found" to anyone but their owner (`Map.Open`, checked where a game
+or room starts). A public map waits in `shafaq-tools queue` until `approve` or `reject`; `GET
+/v1/maps/search` lists only approved ones and official ones. `GET /v1/maps/{slug}/page` is its page:
+plays, likes, tags and the best scores, per round.
+
+**Streets I miss** is each player's private `miss-<id>` map. `POST /v1/games` on it rewrites its sources
+to the streets been on and not yet guessed within 500 m (`SyncMissed`), and `Pick.Frame` plays it on the
+street map's box and size, so the box can't give the last street away. `GET /v1/me/missed` is the list.
 
 ## Yandex usage
 

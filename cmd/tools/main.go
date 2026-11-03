@@ -39,7 +39,7 @@ import (
 
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Fprintln(os.Stderr, "usage: shafaq-tools <migrate|places|v0|demo|maps|tag|stats|google|setup|reports|ban|unban> [flags]")
+		fmt.Fprintln(os.Stderr, "usage: shafaq-tools <migrate|places|v0|demo|maps|tag|stats|google|setup|reports|ban|unban|queue|approve|reject> [flags]")
 		os.Exit(2)
 	}
 	cmd, args := os.Args[1], os.Args[2:]
@@ -66,6 +66,8 @@ func main() {
 		err = library.ScanGoogle(ctx, pool, cfg.GoogleMapsKey, os.Stdout)
 	case "reports", "ban", "unban":
 		err = moderate(ctx, store.New(pool), cmd, fs.Args())
+	case "queue", "approve", "reject":
+		err = moderateMaps(ctx, store.New(pool), cmd, fs.Args())
 	default:
 		err = run(ctx, pool, cmd, *pbf)
 	}

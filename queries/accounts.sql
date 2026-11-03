@@ -86,6 +86,11 @@ UPDATE sessions SET user_id = @user_id WHERE user_id = @other_id;
 -- name: MergeMaps :exec
 UPDATE maps SET owner_id = @user_id WHERE owner_id = @other_id;
 
+-- name: MergeMapLikes :exec
+INSERT INTO map_likes (map_id, user_id, created_at)
+SELECT l.map_id, @keep_id, l.created_at FROM map_likes l WHERE l.user_id = @other_id
+ON CONFLICT DO NOTHING;
+
 -- name: MergeChallenges :exec
 UPDATE challenges SET created_by = @user_id WHERE created_by = @other_id;
 

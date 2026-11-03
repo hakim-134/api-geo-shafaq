@@ -394,6 +394,22 @@ func (q *Queries) MergeIdentities(ctx context.Context, arg MergeIdentitiesParams
 	return err
 }
 
+const mergeMapLikes = `-- name: MergeMapLikes :exec
+INSERT INTO map_likes (map_id, user_id, created_at)
+SELECT l.map_id, $1, l.created_at FROM map_likes l WHERE l.user_id = $2
+ON CONFLICT DO NOTHING
+`
+
+type MergeMapLikesParams struct {
+	KeepID  uuid.UUID
+	OtherID uuid.UUID
+}
+
+func (q *Queries) MergeMapLikes(ctx context.Context, arg MergeMapLikesParams) error {
+	_, err := q.db.Exec(ctx, mergeMapLikes, arg.KeepID, arg.OtherID)
+	return err
+}
+
 const mergeMaps = `-- name: MergeMaps :exec
 UPDATE maps SET owner_id = $1 WHERE owner_id = $2
 `

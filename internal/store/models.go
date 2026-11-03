@@ -74,21 +74,31 @@ type Identity struct {
 }
 
 type Map struct {
-	ID         int64
-	Slug       string
-	OwnerID    *uuid.UUID
-	NameUz     string
-	NameRu     string
-	NameEn     string
-	DescUz     string
-	DescRu     string
-	DescEn     string
-	Visibility string
-	Rules      json.RawMessage
-	Pick       json.RawMessage
-	Sort       int32
-	CreatedAt  time.Time
-	UpdatedAt  time.Time
+	ID             int64
+	Slug           string
+	OwnerID        *uuid.UUID
+	NameUz         string
+	NameRu         string
+	NameEn         string
+	DescUz         string
+	DescRu         string
+	DescEn         string
+	Visibility     string
+	Rules          json.RawMessage
+	Pick           json.RawMessage
+	Sort           int32
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
+	Moderation     string
+	ModerationNote string
+	Tags           []string
+	DeletedAt      *time.Time
+}
+
+type MapLike struct {
+	MapID     int64
+	UserID    uuid.UUID
+	CreatedAt time.Time
 }
 
 type MapSource struct {
@@ -97,6 +107,7 @@ type MapSource struct {
 	PlaceID    *int64
 	StreetID   *int64
 	PanoramaID *int64
+	Area       interface{}
 }
 
 type MergeOffer struct {

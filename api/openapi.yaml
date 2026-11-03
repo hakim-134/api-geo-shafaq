@@ -135,6 +135,21 @@ paths:
               schema: { $ref: "#/components/schemas/MissedStreets" }
         "401": { $ref: "#/components/responses/Error" }
 
+  /v1/me/maps:
+    get:
+      tags: [maps]
+      operationId: listMyMaps
+      summary: The maps the player made.
+      responses:
+        "200":
+          description: Maps
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/MapCard" }
+        "401": { $ref: "#/components/responses/Error" }
+
   /v1/config:
     get:
       tags: [accounts]
@@ -402,6 +417,99 @@ paths:
               schema:
                 type: array
                 items: { $ref: "#/components/schemas/MapSummary" }
+    post:
+      tags: [maps]
+      operationId: createMap
+      summary: Make a map from places, a drawn area and streets; the library fills it.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/NewMap" }
+      responses:
+        "201":
+          description: The new map
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MapSummary" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "429": { $ref: "#/components/responses/Error" }
+
+  /v1/maps/preview:
+    post:
+      tags: [maps]
+      operationId: previewMap
+      summary: How many panoramas a map made of these would hold.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/MapSources" }
+      responses:
+        "200":
+          description: The count
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MapPreview" }
+        "400": { $ref: "#/components/responses/Error" }
+        "429": { $ref: "#/components/responses/Error" }
+
+  /v1/maps/search:
+    get:
+      tags: [maps]
+      operationId: searchMaps
+      summary: The listed maps, most played first; by name, by tag.
+      parameters:
+        - { name: q, in: query, schema: { type: string, maxLength: 60 } }
+        - { name: tag, in: query, schema: { type: string } }
+        - { name: page, in: query, schema: { type: integer, minimum: 1 } }
+      responses:
+        "200":
+          description: A page of maps
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MapSearch" }
+
+  /v1/library/points:
+    get:
+      tags: [maps]
+      operationId: libraryPoints
+      summary: Where the library has panoramas in this box, thinned; the map maker's dots.
+      parameters:
+        - { name: west, in: query, required: true, schema: { type: number, format: double } }
+        - { name: south, in: query, required: true, schema: { type: number, format: double } }
+        - { name: east, in: query, required: true, schema: { type: number, format: double } }
+        - { name: north, in: query, required: true, schema: { type: number, format: double } }
+      responses:
+        "200":
+          description: "[lat, lon] pairs"
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: array
+                  minItems: 2
+                  maxItems: 2
+                  items: { type: number, format: double }
+        "400": { $ref: "#/components/responses/Error" }
+
+  /v1/library/streets:
+    get:
+      tags: [maps]
+      operationId: libraryStreets
+      summary: The named streets with panoramas; the map maker's list.
+      responses:
+        "200":
+          description: Streets
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/LibraryStreet" }
 
   /v1/maps/{slug}:
     get:
@@ -416,6 +524,68 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/MapSummary" }
         "404": { $ref: "#/components/responses/Error" }
+    patch:
+      tags: [maps]
+      operationId: updateMap
+      summary: The owner changes a map's name, who sees it, its tags.
+      parameters:
+        - $ref: "#/components/parameters/Slug"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/MapUpdate" }
+      responses:
+        "200":
+          description: The map's page
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MapPage" }
+        "400": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+    delete:
+      tags: [maps]
+      operationId: deleteMap
+      summary: The owner deletes a map. Games already played keep it.
+      parameters:
+        - $ref: "#/components/parameters/Slug"
+      responses:
+        "204": { description: Deleted }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /v1/maps/{slug}/page:
+    get:
+      tags: [maps]
+      operationId: getMapPage
+      summary: A map's page. plays, likes, best scores, tags.
+      parameters:
+        - $ref: "#/components/parameters/Slug"
+      responses:
+        "200":
+          description: The page
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MapPage" }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /v1/maps/{slug}/like:
+    put:
+      tags: [maps]
+      operationId: likeMap
+      parameters:
+        - $ref: "#/components/parameters/Slug"
+      responses:
+        "204": { description: Liked }
+        "401": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+    delete:
+      tags: [maps]
+      operationId: unlikeMap
+      parameters:
+        - $ref: "#/components/parameters/Slug"
+      responses:
+        "204": { description: No longer liked }
+        "401": { $ref: "#/components/responses/Error" }
 
   /v1/places/{slug}:
     get:
@@ -1265,6 +1435,126 @@ components:
         streets:
           type: array
           items: { $ref: "#/components/schemas/MyStreet" }
+
+    MapVisibility:
+      type: string
+      enum: [private, unlisted, public]
+
+    MapModeration:
+      type: string
+      description: "none: not public. pending: waits for a person; plays by its link. approved: listed. rejected: not listed."
+      enum: [none, pending, approved, rejected]
+
+    MapSources:
+      type: object
+      properties:
+        places: { type: array, maxItems: 30, items: { type: string } }
+        streets: { type: array, maxItems: 200, items: { type: integer, format: int64 } }
+        area:
+          type: array
+          description: A drawn loop of [lat, lon].
+          maxItems: 300
+          items:
+            type: array
+            minItems: 2
+            maxItems: 2
+            items: { type: number, format: double }
+
+    NewMap:
+      allOf:
+        - $ref: "#/components/schemas/MapSources"
+        - type: object
+          required: [name, visibility]
+          properties:
+            name: { type: string, maxLength: 60 }
+            visibility: { $ref: "#/components/schemas/MapVisibility" }
+            tags: { type: array, maxItems: 4, items: { type: string } }
+
+    MapUpdate:
+      type: object
+      required: [name, visibility, tags]
+      properties:
+        name: { type: string, maxLength: 60 }
+        visibility: { $ref: "#/components/schemas/MapVisibility" }
+        tags: { type: array, maxItems: 4, items: { type: string } }
+
+    MapPreview:
+      type: object
+      required: [panoramas, streets]
+      properties:
+        panoramas: { type: integer }
+        streets: { type: integer }
+
+    LibraryStreet:
+      type: object
+      required: [id, name, panoramas]
+      properties:
+        id: { type: integer, format: int64 }
+        name: { $ref: "#/components/schemas/Text" }
+        panoramas: { type: integer }
+
+    MapCard:
+      type: object
+      required: [slug, name, description, official, panoramas, plays, likes, tags, visibility, moderation]
+      properties:
+        slug: { type: string }
+        name: { $ref: "#/components/schemas/Text" }
+        description: { $ref: "#/components/schemas/Text" }
+        official: { type: boolean }
+        panoramas: { type: integer }
+        plays: { type: integer }
+        likes: { type: integer }
+        tags: { type: array, items: { type: string } }
+        visibility: { $ref: "#/components/schemas/MapVisibility" }
+        moderation: { $ref: "#/components/schemas/MapModeration" }
+
+    MapSearch:
+      type: object
+      required: [maps, total]
+      properties:
+        maps:
+          type: array
+          items: { $ref: "#/components/schemas/MapCard" }
+        total: { type: integer }
+
+    MapPage:
+      type: object
+      required: [map, visibility, moderation, tags, plays, likes, liked, mine, board]
+      properties:
+        map: { $ref: "#/components/schemas/MapSummary" }
+        by: { $ref: "#/components/schemas/PublicUser" }
+        visibility: { $ref: "#/components/schemas/MapVisibility" }
+        moderation: { $ref: "#/components/schemas/MapModeration" }
+        moderationNote: { type: string, description: "Why it was rejected; its owner only." }
+        tags: { type: array, items: { type: string } }
+        plays: { type: integer, description: Games started on it. }
+        likes: { type: integer }
+        liked: { type: boolean, description: This player likes it. }
+        mine: { type: boolean, description: This player made it. }
+        area:
+          type: object
+          additionalProperties: true
+          description: The drawn area as a GeoJSON geometry, when the map has one.
+        streetPoints:
+          type: array
+          description: "Where its picked streets run: [lat, lon] of their panoramas."
+          items:
+            type: array
+            minItems: 2
+            maxItems: 2
+            items: { type: number, format: double }
+        board:
+          type: array
+          items: { $ref: "#/components/schemas/MapBoardRow" }
+
+    MapBoardRow:
+      type: object
+      required: [place, player, perRound, game]
+      properties:
+        place: { type: integer }
+        player: { $ref: "#/components/schemas/PublicUser" }
+        perRound: { type: integer, description: Points per round in the player's best game here. }
+        game: { type: string, format: uuid }
 
     MapBest:
       type: object

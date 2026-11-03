@@ -11,18 +11,24 @@ import (
 var ErrBadName = errors.New("bad_name")
 
 const (
-	NameMin = 2
-	NameMax = 24
+	NameMin    = 2
+	NameMax    = 24
+	MapNameMax = 40
 )
 
 // CleanName checks a name a player typed and returns it tidied (spaces collapsed). Players
 // are families in Uzbekistan (players.md): names are checked against rude words in Uzbek,
 // Russian and English, written in either script or with digits for letters, and against
 // names that pose as the game's staff.
-func CleanName(name string) (string, error) {
+func CleanName(name string) (string, error) { return cleanName(name, NameMax) }
+
+// CleanMapName checks a map's name by the same rules; it may be a little longer.
+func CleanMapName(name string) (string, error) { return cleanName(name, MapNameMax) }
+
+func cleanName(name string, longest int) (string, error) {
 	name = strings.Join(strings.Fields(name), " ")
 	n := utf8.RuneCountInString(name)
-	if n < NameMin || n > NameMax {
+	if n < NameMin || n > longest {
 		return "", ErrBadName
 	}
 	letters := 0
