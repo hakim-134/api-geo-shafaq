@@ -101,17 +101,17 @@ var botTexts = map[string]map[string]string{
 	"uz": {
 		"signedIn": "✅ Tayyor! O‘yinga qayting: kirish tasdiqlandi.",
 		"expired":  "Bu havola eskirgan. O‘yinda «Telegram orqali kirish» tugmasini qayta bosing.",
-		"welcome":  "Salom! Bu <b>Shafaq Geo</b>: ko‘chaga tushasiz, atrofga qaraysiz va xaritada qayerdaligingizni topasiz.",
+		"welcome":  "Salom! Bu <b>GeoShafaq</b>: ko‘chaga tushasiz, atrofga qaraysiz va xaritada qayerdaligingizni topasiz.",
 	},
 	"ru": {
 		"signedIn": "✅ Готово! Вернитесь в игру: вход подтверждён.",
 		"expired":  "Эта ссылка устарела. Нажмите «Войти через Telegram» в игре ещё раз.",
-		"welcome":  "Привет! Это <b>Shafaq Geo</b>: вы оказываетесь на улице, осматриваетесь и находите это место на карте.",
+		"welcome":  "Привет! Это <b>GeoShafaq</b>: вы оказываетесь на улице, осматриваетесь и находите это место на карте.",
 	},
 	"en": {
 		"signedIn": "✅ Done! Go back to the game: you are signed in.",
 		"expired":  "This link has expired. Tap “Sign in with Telegram” in the game again.",
-		"welcome":  "Hi! This is <b>Shafaq Geo</b>: you land on a street, look around and find the spot on the map.",
+		"welcome":  "Hi! This is <b>GeoShafaq</b>: you land on a street, look around and find the spot on the map.",
 	},
 }
 

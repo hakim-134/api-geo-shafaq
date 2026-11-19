@@ -30,7 +30,7 @@ func TestCleanName(t *testing.T) {
 	bad := []string{
 		"a", "", "                ", "this name is far too long for a game",
 		"fuck", "FuCk_you", "f.u.c.k", "Хуй", "xuyovich", "сука", "5uk4", "s u k a",
-		"jalab", "Dalbayob", "admin", "Admin_01", "ShafaqGeo", "<script>", "a\x00b",
+		"jalab", "Dalbayob", "admin", "Admin_01", "ShafaqGeo", "GeoShafaq", "<script>", "a\x00b",
 		"sik", "Nazi", "Alloh", "🐼🐼", "___",
 	}
 	for _, in := range bad {

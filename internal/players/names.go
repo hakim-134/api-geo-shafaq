@@ -124,7 +124,7 @@ var rudeRoots = foldAll(
 	"jalab", "qanjiq", "kanjik", "sikay", "sikish", "siktir", "qotaq", "kotak", "dalbayob",
 	"dalbaeb", "onangni", "xunasa", "haromzoda", "xaromzoda", "itvachcha",
 	// posing as the game's staff
-	"admin", "moderator", "shafaqgeo", "support",
+	"admin", "moderator", "shafaqgeo", "geoshafaq", "support",
 )
 
 // rudeWords match whole words only: short ones that would match inside harmless words.

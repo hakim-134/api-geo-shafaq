@@ -500,6 +500,7 @@ func placeOut(p places.Info) oapi.PlaceInfo {
 	if p.Metro != nil {
 		out.Metro = &oapi.Metro{Name: text(p.Metro.Name), Km: p.Metro.Km}
 	}
+	out.Slug, out.Parent = strPtr(p.Slug), strPtr(p.Parent)
 	return out
 }
 

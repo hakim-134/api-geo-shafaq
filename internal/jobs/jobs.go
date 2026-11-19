@@ -74,11 +74,11 @@ func (w *UsageCheck) near(ctx context.Context, name string, line int, since time
 		var msg string
 		switch {
 		case w.Caps[name] > 0:
-			msg = fmt.Sprintf("Shafaq Geo: %d %s panorama views on %s, of today's cap of %d. "+
+			msg = fmt.Sprintf("GeoShafaq: %d %s panorama views on %s, of today's cap of %d. "+
 				"At the cap its rounds stop until midnight (Moscow time) and games use the other providers.",
 				r.Views, name, r.Day.Format("2006-01-02"), line)
 		default:
-			msg = fmt.Sprintf("Shafaq Geo: %d Yandex panorama views on %s, the free key allows about %d a day. "+
+			msg = fmt.Sprintf("GeoShafaq: %d Yandex panorama views on %s, the free key allows about %d a day. "+
 				"Going over again and again gets the key blocked for good: time to buy the commercial license.",
 				r.Views, r.Day.Format("2006-01-02"), line)
 		}
@@ -99,7 +99,7 @@ func (w *UsageCheck) stopped(ctx context.Context, name string, limit int, since 
 		return err
 	}
 	for _, r := range rows {
-		msg := fmt.Sprintf("Shafaq Geo: %s reached today's cap of %d panorama views (%s). "+
+		msg := fmt.Sprintf("GeoShafaq: %s reached today's cap of %d panorama views (%s). "+
 			"No new %s rounds until midnight, Moscow time; games use the other providers, "+
 			"and if a game has none, new games wait for tomorrow. Raise DAILY_CAPS to allow more.",
 			name, limit, r.Day.Format("2006-01-02"), name)
@@ -149,7 +149,7 @@ func (w *QuotaCheck) Work(ctx context.Context, _ *river.Job[QuotaCheckArgs]) err
 	if warned, err := w.Q.UsageWarned(ctx, day); err != nil || warned {
 		return err
 	}
-	msg := "Shafaq Geo: Yandex counts today's requests near the free daily limit:\n" + strings.Join(near, "\n") +
+	msg := "GeoShafaq: Yandex counts today's requests near the free daily limit:\n" + strings.Join(near, "\n") +
 		"\nGoing over again and again gets the key blocked for good: time to buy the commercial license."
 	slog.Warn("yandex quota warning", "near", near)
 	if err := w.Alert.Send(ctx, msg); err != nil {

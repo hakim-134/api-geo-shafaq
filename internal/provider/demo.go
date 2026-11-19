@@ -33,7 +33,7 @@ type Demo struct {
 func (Demo) Name() string { return "demo" }
 
 func (Demo) Capabilities() Capabilities {
-	return Capabilities{Move: false, HidesCoords: true, Credit: "Shafaq Geo demo"}
+	return Capabilities{Move: false, HidesCoords: true, Credit: "GeoShafaq demo"}
 }
 
 func (d Demo) View(p Pano, _ geo.Point, _ float64, heading float64) View {

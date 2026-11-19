@@ -23,6 +23,14 @@ var zeroUser uuid.UUID
 
 func text(t places.Text) oapi.Text { return oapi.Text{Uz: t.Uz, Ru: t.Ru, En: t.En} }
 
+// strPtr is nil for "": the field is left out of the answer.
+func strPtr(v string) *string {
+	if v == "" {
+		return nil
+	}
+	return &v
+}
+
 func textPtr(t *places.Text) *oapi.Text {
 	if t == nil {
 		return nil
@@ -241,6 +249,7 @@ func resultOut(r *game.Result) oapi.RoundResult {
 	if r.Place.Metro != nil {
 		out.Place.Metro = &oapi.Metro{Name: text(r.Place.Metro.Name), Km: r.Place.Metro.Km}
 	}
+	out.Place.Slug, out.Place.Parent = strPtr(r.Place.Slug), strPtr(r.Place.Parent)
 	if r.Crowd != nil {
 		out.Crowd = &struct {
 			Km float64 `json:"km"`

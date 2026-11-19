@@ -85,8 +85,8 @@ func Draw(d Data) ([]byte, error) {
 	}
 
 	const left = 72
-	x := text(img, display, 38, left, 104, "Shafaq", white)
-	text(img, display, 38, x, 104, "Geo", sky)
+	x := text(img, display, 38, left, 104, "Geo", white) // the name players read: GeoShafaq
+	text(img, display, 38, x, 104, "Shafaq", sky)
 
 	line := fitted(body, 46, Width-2*left, d.Name+" sizni chaqirdi")
 	text(img, body, line.size, left, 186, line.text, white)

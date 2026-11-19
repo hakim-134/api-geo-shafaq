@@ -895,8 +895,18 @@ type PlaceInfo struct {
 	District *Text  `json:"district,omitempty"`
 	Metro    *Metro `json:"metro,omitempty"`
 
+	// Parent The place `slug` is a part of.
+	//
+	// Example: toshkent
+	Parent *string `json:"parent,omitempty"`
+
 	// Region A name in the three languages. `ru` and `en` fall back to `uz` (street signs are in Uzbek Latin).
 	Region *Text `json:"region,omitempty"`
+
+	// Slug The smallest place the round was in (a district, a city, a region). With `parent` it is the place's picture: `GET /v1/places/{parent}/map` draws the parent's parts, and this one is filled in. Missing in results saved before 2026-11-12.
+	//
+	// Example: bektemir-tumani
+	Slug *string `json:"slug,omitempty"`
 
 	// Street A name in the three languages. `ru` and `en` fall back to `uz` (street signs are in Uzbek Latin).
 	Street *Text `json:"street,omitempty"`

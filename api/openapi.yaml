@@ -2070,6 +2070,17 @@ components:
         region: { $ref: "#/components/schemas/Text" }
         metro:
           $ref: "#/components/schemas/Metro"
+        slug:
+          type: string
+          description: >-
+            The smallest place the round was in (a district, a city, a region). With `parent`
+            it is the place's picture: `GET /v1/places/{parent}/map` draws the parent's parts,
+            and this one is filled in. Missing in results saved before 2026-11-12.
+          example: bektemir-tumani
+        parent:
+          type: string
+          description: The place `slug` is a part of.
+          example: toshkent
 
     Metro:
       type: object

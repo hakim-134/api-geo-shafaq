@@ -126,6 +126,10 @@ func TestYandexRoundIsScoredAgainstWhatTheViewerOpened(t *testing.T) {
 	if res.Place.District == nil || res.Place.City == nil {
 		t.Fatalf("no place info: %+v", res.Place)
 	}
+	// the place's picture: the smallest place, and the place it is a part of
+	if res.Place.Slug == "" || res.Place.Parent == "" || res.Place.Slug == res.Place.Parent {
+		t.Fatalf("no place and parent for the picture: %+v", res.Place)
+	}
 }
 
 func TestClock(t *testing.T) {

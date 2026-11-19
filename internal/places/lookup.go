@@ -35,6 +35,11 @@ type Info struct {
 	City     *Text
 	Region   *Text
 	Metro    *Metro
+	// The smallest place holding the point and the place it is a part of, by slug: the game
+	// draws the first filled in inside the second (place-in-parent). Empty in results saved
+	// before 2026-11-12.
+	Slug   string `json:",omitempty"`
+	Parent string `json:",omitempty"`
 }
 
 type Metro struct {
@@ -56,7 +61,12 @@ func Lookup(ctx context.Context, q *store.Queries, p geo.Point) (Info, error) {
 	if err != nil {
 		return info, err
 	}
-	for _, pl := range at { // smallest first
+	for i, pl := range at { // smallest first
+		if i == 0 {
+			info.Slug = pl.Slug
+		} else if info.Parent == "" && pl.Kind == at[0].ParentKind {
+			info.Parent = pl.Slug
+		}
 		t := NewText(pl.NameUz, pl.NameRu, pl.NameEn)
 		switch pl.Kind {
 		case "district":

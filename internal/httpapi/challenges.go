@@ -106,7 +106,7 @@ func (s *Server) PlayChallenge(w http.ResponseWriter, r *http.Request, code stri
 var cardPage = template.Must(template.New("card").Parse(`<!doctype html>
 <html lang="uz"><head><meta charset="utf-8">
 <title>{{.Title}}</title>
-<meta property="og:site_name" content="Shafaq Geo">
+<meta property="og:site_name" content="GeoShafaq">
 <meta property="og:type" content="website">
 <meta property="og:title" content="{{.Title}}">
 <meta property="og:description" content="{{.Text}}">
