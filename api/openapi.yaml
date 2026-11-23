@@ -474,6 +474,35 @@ paths:
                 type: array
                 items: { $ref: "#/components/schemas/MapSummary" }
 
+  /v1/maps/mix:
+    post:
+      tags: [maps]
+      operationId: mixMap
+      summary: One map made of several places (or ready-made maps), for a game across them.
+      description: |
+        The map picker's list as one map that a game, a room and a challenge play by its slug,
+        like any other. Each round first picks one of the parts, each equally likely and each in
+        its turn (no part comes twice before every part with panoramas left has come once), then
+        a panorama inside it the way that part's own map picks, and is scored by that part's own
+        size, never by the size of everything mixed. The guess map opens on all of them (`bbox`).
+
+        The same parts, in any order, always give the same map (`mix-…`). Parts are deduplicated;
+        a place's map whose place lies inside another part's place is dropped (Yunusobod with
+        Toshkent: Toshkent). One part left gives that part's own map, not a mix.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/MixMap" }
+      responses:
+        "200":
+          description: The mixed map (or the one part's own map)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MapSummary" }
+        "400": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+
   /v1/maps/{slug}:
     get:
       tags: [maps]
@@ -1581,6 +1610,43 @@ components:
             cities); a player's streets map, the place of the map it plays on. Absent when the
             map has no places.
           example: toshkent
+        parts:
+          type: array
+          description: >-
+            A mixed map (`POST /v1/maps/mix`): the maps it is made of, in the order first given.
+            Absent on every other map.
+          items: { $ref: "#/components/schemas/MapPart" }
+
+    MixMap:
+      type: object
+      required: [parts]
+      properties:
+        parts:
+          type: array
+          minItems: 1
+          maxItems: 12
+          description: >-
+            The maps to play together, by slug: a place's own map (`place-<slug>`) or a
+            ready-made one (`tashkent-streets`, `historic`, `uzbekistan`). Not a mix, not a
+            player's own map.
+          items: { type: string }
+
+    MapPart:
+      description: One map inside a mixed map.
+      type: object
+      required: [slug, name, places, panoramas]
+      properties:
+        slug: { type: string, description: The part's own map., example: place-buxoro-viloyati }
+        name: { $ref: "#/components/schemas/Text" }
+        face:
+          type: string
+          description: The place whose picture stands for the part (as `MapSummary.face`).
+          example: buxoro-viloyati
+        places:
+          type: array
+          description: The slugs of the part's places (the picker marks them in the part's colour).
+          items: { type: string }
+        panoramas: { type: integer, description: "The part's panoramas, on the players' providers." }
 
     PlaceRef:
       description: A place, by name. On a map, the map's one place (or its parent).

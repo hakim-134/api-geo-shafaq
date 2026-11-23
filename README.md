@@ -44,7 +44,7 @@ container, migrations at start, then the worker and the API on :8131).
 | `internal/game` | solo games: round picking, the clock, hints, scoring; challenges (`challenge.go`): fixed panoramas, one try each, a leaderboard |
 | `internal/card` | draws a challenge's picture for link previews (`card.png`), in the game's fonts |
 | `internal/room` | live rooms: the room in memory, saved to Valkey after every change; each player's rounds saved as their own game |
-| `internal/maps` | maps: the official four, and every place's own map (`place-<slug>`, made the first time someone picks the place); the round picker |
+| `internal/maps` | maps: the official four, every place's own map (`place-<slug>`, made the first time someone picks the place), and mixes (`mix-<hash>`, `POST /v1/maps/mix`: several maps as one, each round from the parts in turn, scored by its part's own size, kept in `rounds.size_km`); the round picker |
 | `internal/provider` | the panorama providers behind one interface: `yandex`, `google`, `demo`. `PROVIDERS` are what players get (and what the menu counts); `TEST_PROVIDERS` play only in games that name them; `DAILY_CAPS` are each one's daily budget |
 | `internal/platform` | logging, and error tracking: Error lines also go to GlitchTip when `GLITCHTIP_DSN` is set |
 | `deploy/` | the server: Caddy, Prometheus, Loki/Alloy, Grafana (dashboard), the db image with pgBackRest, `deploy.sh`, `env.example` |

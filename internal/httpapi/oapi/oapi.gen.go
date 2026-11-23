@@ -721,6 +721,28 @@ type MapBest struct {
 	Rounds int `json:"rounds"`
 }
 
+// MapPart One map inside a mixed map.
+type MapPart struct {
+	// Face The place whose picture stands for the part (as `MapSummary.face`).
+	//
+	// Example: buxoro-viloyati
+	Face *string `json:"face,omitempty"`
+
+	// Name A name in the three languages. `ru` and `en` fall back to `uz` (street signs are in Uzbek Latin).
+	Name Text `json:"name"`
+
+	// Panoramas The part's panoramas, on the players' providers.
+	Panoramas int `json:"panoramas"`
+
+	// Places The slugs of the part's places (the picker marks them in the part's colour).
+	Places []string `json:"places"`
+
+	// Slug The part's own map.
+	//
+	// Example: place-buxoro-viloyati
+	Slug string `json:"slug"`
+}
+
 // MapRef defines model for MapRef.
 type MapRef struct {
 	// Face The place whose picture stands for the map, as in `MapSummary.face`.
@@ -764,6 +786,9 @@ type MapSummary struct {
 
 	// Parent A place, by name. On a map, the map's one place (or its parent).
 	Parent *PlaceRef `json:"parent,omitempty"`
+
+	// Parts A mixed map (`POST /v1/maps/mix`): the maps it is made of, in the order first given. Absent on every other map.
+	Parts *[]MapPart `json:"parts,omitempty"`
 
 	// Place A place, by name. On a map, the map's one place (or its parent).
 	Place *PlaceRef `json:"place,omitempty"`
@@ -818,6 +843,12 @@ type MissedStreets struct {
 	// Map The player's map of these streets: POST /v1/games plays it, refreshed.
 	Map     string     `json:"map"`
 	Streets []MyStreet `json:"streets"`
+}
+
+// MixMap defines model for MixMap.
+type MixMap struct {
+	// Parts The maps to play together, by slug: a place's own map (`place-<slug>`) or a ready-made one (`tashkent-streets`, `historic`, `uzbekistan`). Not a mix, not a player's own map.
+	Parts []string `json:"parts"`
 }
 
 // Movement move = walk freely; nomove = look around only; nmpz = no move, no pan, no zoom.
@@ -1605,6 +1636,9 @@ type GuessJSONRequestBody = GuessRequest
 // RoundShownJSONRequestBody defines body for RoundShown for application/json ContentType.
 type RoundShownJSONRequestBody = RoundShown
 
+// MixMapJSONRequestBody defines body for MixMap for application/json ContentType.
+type MixMapJSONRequestBody = MixMap
+
 // UnlinkIdentityJSONRequestBody defines body for UnlinkIdentity for application/json ContentType.
 type UnlinkIdentityJSONRequestBody UnlinkIdentityJSONBody
 
@@ -1715,6 +1749,9 @@ type ServerInterface interface {
 	// ListMaps The maps on the menu.
 	// (GET /v1/maps)
 	ListMaps(w http.ResponseWriter, r *http.Request)
+	// MixMap One map made of several places (or ready-made maps), for a game across them.
+	// (POST /v1/maps/mix)
+	MixMap(w http.ResponseWriter, r *http.Request)
 
 	// (GET /v1/maps/{slug})
 	GetMap(w http.ResponseWriter, r *http.Request, slug Slug)
@@ -2316,6 +2353,20 @@ func (siw *ServerInterfaceWrapper) ListMaps(w http.ResponseWriter, r *http.Reque
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.ListMaps(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// MixMap operation middleware
+func (siw *ServerInterfaceWrapper) MixMap(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.MixMap(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -3401,6 +3452,7 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/users/{userId}", wrapper.GetProfile)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/users/{userId}/report", wrapper.ReportUser)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/maps", wrapper.ListMaps)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/maps/mix", wrapper.MixMap)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/maps/{slug}", wrapper.GetMap)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/places/{slug}", wrapper.GetPlace)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/places/{slug}/shape", wrapper.GetPlaceShape)

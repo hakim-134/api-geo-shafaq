@@ -128,7 +128,8 @@ func fail(w http.ResponseWriter, r *http.Request, err error) {
 	switch {
 	case errors.Is(err, game.ErrNotFound), errors.Is(err, maps.ErrNotFound), errors.Is(err, players.ErrNotFound), errors.Is(err, barg.ErrNoItem):
 		status, code = http.StatusNotFound, "not_found"
-	case errors.Is(err, game.ErrBadInput), errors.Is(err, players.ErrBadAvatar), errors.Is(err, players.ErrBadPrefs), errors.Is(err, barg.ErrNotWearable):
+	case errors.Is(err, game.ErrBadInput), errors.Is(err, players.ErrBadAvatar), errors.Is(err, players.ErrBadPrefs), errors.Is(err, barg.ErrNotWearable),
+		errors.Is(err, maps.ErrBadMix):
 		status, code = http.StatusBadRequest, "bad_input"
 	case errors.Is(err, players.ErrBadName):
 		status, code = http.StatusBadRequest, "bad_name"

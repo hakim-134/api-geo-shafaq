@@ -172,18 +172,21 @@ func (s *Service) challengeOpen(ctx context.Context, q *store.Queries, ch store.
 	return nil
 }
 
-// challengeRound is round n's fixed panorama: the same point and first heading for everyone.
-func challengeRound(ctx context.Context, q *store.Queries, code string, n int) (c maps.Candidate, near geo.Point, heading, snapKm float64, err error) {
+// challengeRound is round n's fixed panorama: the same point and first heading for everyone,
+// scored by the same size.
+func challengeRound(ctx context.Context, q *store.Queries, code string, n int) (Pick, error) {
 	rows, err := q.ChallengeRounds(ctx, code)
 	if err != nil {
-		return c, near, 0, 0, err
+		return Pick{}, err
 	}
 	if n < 1 || n > len(rows) {
-		return c, near, 0, 0, ErrNoPanorama
+		return Pick{}, ErrNoPanorama
 	}
 	r := rows[n-1]
-	c = maps.Candidate{Pano: provider.Pano{ID: r.PanoramaID, Provider: r.Provider, Ref: r.Ref}}
-	return c, geo.Point{Lat: r.NearLat, Lon: r.NearLon}, float64(r.Heading), r.SnapKm, nil
+	return Pick{
+		Cand: maps.Candidate{Pano: provider.Pano{ID: r.PanoramaID, Provider: r.Provider, Ref: r.Ref}},
+		Near: geo.Point{Lat: r.NearLat, Lon: r.NearLon}, Heading: float64(r.Heading), SnapKm: r.SnapKm, SizeKm: r.SizeKm,
+	}, nil
 }
 
 // challengeCrowd is a challenge round's ring: its players that round, two guesses or more, like a

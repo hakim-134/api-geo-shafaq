@@ -160,7 +160,7 @@ func (s *Service) Create(ctx context.Context, userID uuid.UUID, slug string, r *
 	if err != nil {
 		return nil, err
 	}
-	metrics.GamesStarted.WithLabelValues(m.Slug).Inc()
+	metrics.GamesStarted.WithLabelValues(m.Metric()).Inc()
 	return &Game{
 		ID: row.ID, UserID: userID, Map: m, Rules: rs, Status: row.Status,
 		StartedAt: row.StartedAt, Rounds: []Round{},
@@ -192,7 +192,7 @@ func (s *Service) Prepare(ctx context.Context, slug string, r *rules.Rules) (*ma
 	if rs.Movement == rules.Move && !s.Reg.CanMove(allowed) {
 		rs.Movement = rules.NoMove // offered only where the panoramas can do it
 	}
-	have := m.Count(allowed)
+	have := m.RoundCount(allowed)
 	if have == 0 {
 		return nil, rs, ErrNoPanorama
 	}
@@ -206,7 +206,7 @@ func (s *Service) Prepare(ctx context.Context, slug string, r *rules.Rules) (*ma
 	if err != nil {
 		return nil, rs, err
 	}
-	if m.Count(open) < max(rs.Rounds, 1) {
+	if m.RoundCount(open) < max(rs.Rounds, 1) {
 		return nil, rs, ErrDailyCap
 	}
 	return m, rs, nil
@@ -289,9 +289,9 @@ func (s *Service) round(g *Game, r store.GameRoundsRow) (Round, error) {
 			res.Guess = &geo.Point{Lat: r.GuessLat, Lon: r.GuessLon}
 		}
 		if r.Km != nil && !res.Late {
-			// the score before hints is not stored: the same formula gives it back, unless
-			// the map's size changed since
-			if sc, base := scored(*r.Km, g.Map.SizeKm, g.Rules, len(rd.Hints)); sc == res.Score {
+			// the score before hints is not stored: the same formula gives it back, with the
+			// size the round was scored by
+			if sc, base := scored(*r.Km, r.SizeKm, g.Rules, len(rd.Hints)); sc == res.Score {
 				res.Base = base
 			}
 		}
@@ -398,14 +398,11 @@ func (s *Service) NextRound(ctx context.Context, userID, id uuid.UUID) (*Round, 
 		if err != nil {
 			return err
 		}
-		var c maps.Candidate
-		var near geo.Point
-		var heading float64
-		snapKm := g.Map.Pick.SnapKm
+		var p Pick
 		if g.Challenge != nil {
-			c, near, heading, snapKm, err = challengeRound(ctx, q, *g.Challenge, n)
+			p, err = challengeRound(ctx, q, *g.Challenge, n)
 		} else {
-			c, near, heading, err = s.pick(ctx, q, g, seed, n, 0, nil)
+			p, err = s.pick(ctx, q, g, seed, n, 0, nil)
 		}
 		if errors.Is(err, ErrNoPanorama) && g.Rules.Endless() && n > 1 {
 			// an endless game that has shown every panorama of its map is done
@@ -418,19 +415,19 @@ func (s *Service) NextRound(ctx context.Context, userID, id uuid.UUID) (*Round, 
 			return err
 		}
 		err = q.CreateRound(ctx, store.CreateRoundParams{
-			GameID: id, N: int32(n), PanoramaID: c.ID, Provider: c.Provider,
-			NearLat: near.Lat, NearLon: near.Lon, SnapKm: snapKm, Heading: float32(heading),
+			GameID: id, N: int32(n), PanoramaID: p.Cand.ID, Provider: p.Cand.Provider,
+			NearLat: p.Near.Lat, NearLon: p.Near.Lon, SnapKm: p.SnapKm, SizeKm: p.SizeKm, Heading: float32(p.Heading),
 			CreatedAt: s.now(),
 		})
 		if err != nil {
 			return err
 		}
-		p, _ := s.Reg.Get(c.Provider)
+		prov, _ := s.Reg.Get(p.Cand.Provider)
 		out = &Round{
-			N: n, View: p.View(c.Pano, near, snapKm, heading),
+			N: n, View: prov.View(p.Cand.Pano, p.Near, p.SnapKm, p.Heading),
 			HintsLeft: g.Rules.HintsLeft(0, g.HintsUsed), Hints: []Hint{},
 		}
-		counted = c.Provider
+		counted = p.Cand.Provider
 		return nil
 	})
 	if err != nil {
@@ -464,16 +461,17 @@ func (s *Service) uncapped(ctx context.Context, allowed map[string]bool) (map[st
 
 // pick chooses a panorama for round n that earlier rounds did not show. skip is a panorama
 // that just failed to open.
-func (s *Service) pick(ctx context.Context, q *store.Queries, g *Game, seed int64, n, salt int, skip *int64) (maps.Candidate, geo.Point, float64, error) {
+func (s *Service) pick(ctx context.Context, q *store.Queries, g *Game, seed int64, n, salt int, skip *int64) (Pick, error) {
 	rows, err := q.GameRounds(ctx, store.GameRoundsParams{GameID: g.ID, UserID: g.UserID})
 	if err != nil {
-		return maps.Candidate{}, geo.Point{}, 0, err
+		return Pick{}, err
 	}
-	used := maps.Used{IDs: map[int64]bool{}}
+	used := maps.Used{IDs: map[int64]bool{}, Rounds: make([]int64, 0, len(rows))}
 	for _, r := range rows {
 		used.IDs[r.PanoramaID] = true
 		if int(r.N) != n {
 			used.Pos = append(used.Pos, geo.Point{Lat: r.ActualLat, Lon: r.ActualLon})
+			used.Rounds = append(used.Rounds, r.PanoramaID)
 		}
 	}
 	if skip != nil {
@@ -482,22 +480,24 @@ func (s *Service) pick(ctx context.Context, q *store.Queries, g *Game, seed int6
 	if g.Challenge != nil { // a swap in a challenge: not a street that is still to come
 		fixed, err := q.ChallengeRounds(ctx, *g.Challenge)
 		if err != nil {
-			return maps.Candidate{}, geo.Point{}, 0, err
+			return Pick{}, err
 		}
 		for _, r := range fixed {
 			used.IDs[r.PanoramaID] = true
 		}
 	}
-	p, err := s.PickRound(ctx, g.Map, g.Rules, used, seed, n, salt)
-	return p.Cand, p.Near, p.Heading, err
+	return s.PickRound(ctx, g.Map, g.Rules, used, seed, n, salt)
 }
 
-// Pick is a round's panorama: what to show, where the viewer searches, where it looks first.
+// Pick is a round's panorama: what to show, where the viewer searches, where it looks first,
+// and the snap and size of the map it came from (a mix's part), which the round is played by.
 type Pick struct {
 	Cand    maps.Candidate
 	Near    geo.Point
 	Heading float64
 	View    provider.View
+	SnapKm  float64
+	SizeKm  float64 // the round is scored and hinted by this
 }
 
 // PickRound chooses a panorama for round n of a game on m (solo or room) that used does not
@@ -519,9 +519,10 @@ func (s *Service) PickRound(ctx context.Context, m *maps.Map, rs rules.Rules, us
 	}
 	near := m.Near(r, c)
 	heading := math.Floor(r.Float64() * 360)
-	out := Pick{Cand: c, Near: near, Heading: heading}
+	src := m.Source(c)
+	out := Pick{Cand: c, Near: near, Heading: heading, SnapKm: src.Pick.SnapKm, SizeKm: src.SizeKm}
 	if p, ok := s.Reg.Get(c.Provider); ok {
-		out.View = p.View(c.Pano, near, m.Pick.SnapKm, heading)
+		out.View = p.View(c.Pano, near, out.SnapKm, heading)
 	}
 	return out, nil
 }
@@ -630,22 +631,22 @@ func (s *Service) Failed(ctx context.Context, userID, id uuid.UUID, n int, notFo
 		if err != nil {
 			return err
 		}
-		c, near, heading, err := s.pick(ctx, q, g, seed, n, int(row.Replaced)+1, &row.PanoramaID)
+		p, err := s.pick(ctx, q, g, seed, n, int(row.Replaced)+1, &row.PanoramaID)
 		if err != nil {
 			return err
 		}
 		err = q.ReplaceRoundPanorama(ctx, store.ReplaceRoundPanoramaParams{
-			GameID: id, N: int32(n), PanoramaID: c.ID, Provider: c.Provider,
-			NearLat: near.Lat, NearLon: near.Lon, SnapKm: g.Map.Pick.SnapKm, Heading: float32(heading),
+			GameID: id, N: int32(n), PanoramaID: p.Cand.ID, Provider: p.Cand.Provider,
+			NearLat: p.Near.Lat, NearLon: p.Near.Lon, SnapKm: p.SnapKm, SizeKm: p.SizeKm, Heading: float32(p.Heading),
 			CreatedAt: s.now(),
 		})
 		if err != nil {
 			return err
 		}
-		p, _ := s.Reg.Get(c.Provider)
-		rd.View = p.View(c.Pano, near, g.Map.Pick.SnapKm, heading)
+		prov, _ := s.Reg.Get(p.Cand.Provider)
+		rd.View = prov.View(p.Cand.Pano, p.Near, p.SnapKm, p.Heading)
 		out = rd
-		counted = c.Provider
+		counted = p.Cand.Provider
 		return nil
 	})
 	if err != nil {
@@ -677,7 +678,7 @@ func (s *Service) Hint(ctx context.Context, userID, id uuid.UUID, n int) (*Hint,
 		if err != nil {
 			return err
 		}
-		h, err := hintFor(ctx, q, g.Rules.Hints.Kind, g.Map.SizeKm, len(rd.Hints), actual, seed, n)
+		h, err := hintFor(ctx, q, g.Rules.Hints.Kind, row.SizeKm, len(rd.Hints), actual, seed, n)
 		if err != nil {
 			return err
 		}
@@ -831,7 +832,7 @@ func (s *Service) Guess(ctx context.Context, userID, id uuid.UUID, n int, pos *g
 			km := geo.DistanceKm(actual, *pos)
 			res.Km = &km
 			if !late {
-				res.Score, res.Base = scored(km, g.Map.SizeKm, g.Rules, len(rd.Hints))
+				res.Score, res.Base = scored(km, row.SizeKm, g.Rules, len(rd.Hints))
 			}
 			params.Lat, params.Lon, params.Km = &pos.Lat, &pos.Lon, &km
 		}

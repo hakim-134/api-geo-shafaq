@@ -41,6 +41,7 @@ type ChallengeRound struct {
 	Near       interface{}
 	SnapKm     float64
 	Heading    float32
+	SizeKm     *float64
 }
 
 type Game struct {
@@ -189,6 +190,7 @@ type Round struct {
 	ShownAt    *time.Time
 	Deadline   *time.Time
 	Replaced   int32
+	SizeKm     *float64
 }
 
 type Session struct {

@@ -16,10 +16,11 @@ RETURNING *;
 
 -- name: CopyChallengeRounds :execrows
 -- The rounds that were played in the source game (a room: in any of its players' rows), renumbered.
-INSERT INTO challenge_rounds (challenge, n, panorama_id, provider, near, snap_km, heading)
-SELECT @code, (row_number() OVER (ORDER BY x.n))::int, x.panorama_id, x.provider, x.near, x.snap_km, x.heading
+INSERT INTO challenge_rounds (challenge, n, panorama_id, provider, near, snap_km, size_km, heading)
+SELECT @code, (row_number() OVER (ORDER BY x.n))::int, x.panorama_id, x.provider, x.near, x.snap_km, x.size_km, x.heading
 FROM (
-    SELECT DISTINCT ON (r.n) r.n, r.panorama_id, r.provider, r.near, r.snap_km, r.heading
+    SELECT DISTINCT ON (r.n) r.n, r.panorama_id, r.provider, r.near, r.snap_km,
+           coalesce(r.size_km, g.size_km) AS size_km, r.heading
     FROM rounds r
     JOIN games g ON g.id = r.game_id
     JOIN guesses gu ON gu.game_id = r.game_id AND gu.n = r.n AND gu.guessed_at IS NOT NULL
@@ -36,9 +37,12 @@ UPDATE games SET challenge = @code
 WHERE (id = @source OR room_game = @source) AND status = 'finished' AND challenge IS NULL;
 
 -- name: ChallengeRounds :many
+-- size_km: what each round is scored by (the challenge's own size for rounds from before mixed maps).
 SELECT cr.n, cr.panorama_id, cr.provider, cr.snap_km, cr.heading, p.ref,
+       coalesce(cr.size_km, c.size_km)::float8 AS size_km,
        ST_Y(cr.near)::float8 AS near_lat, ST_X(cr.near)::float8 AS near_lon
 FROM challenge_rounds cr
+JOIN challenges c ON c.code = cr.challenge
 JOIN panoramas p ON p.id = cr.panorama_id
 WHERE cr.challenge = @code
 ORDER BY cr.n;

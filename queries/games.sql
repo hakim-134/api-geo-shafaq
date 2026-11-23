@@ -43,15 +43,16 @@ LIMIT @lim OFFSET @off;
 SELECT count(*)::int FROM games WHERE user_id = @user_id AND status = 'finished';
 
 -- name: CreateRound :exec
-INSERT INTO rounds (game_id, n, panorama_id, provider, near, snap_km, heading, created_at)
+-- size_km: what the round is scored by, its own part's size on a mixed map.
+INSERT INTO rounds (game_id, n, panorama_id, provider, near, snap_km, size_km, heading, created_at)
 VALUES (@game_id, @n, @panorama_id, @provider,
-        ST_SetSRID(ST_MakePoint(@near_lon::float8, @near_lat::float8), 4326), @snap_km, @heading, @created_at);
+        ST_SetSRID(ST_MakePoint(@near_lon::float8, @near_lat::float8), 4326), @snap_km, @size_km::float8, @heading, @created_at);
 
 -- name: ReplaceRoundPanorama :exec
 UPDATE rounds
 SET panorama_id = @panorama_id, provider = @provider,
     near = ST_SetSRID(ST_MakePoint(@near_lon::float8, @near_lat::float8), 4326),
-    snap_km = @snap_km, heading = @heading, replaced = replaced + 1, created_at = @created_at
+    snap_km = @snap_km, size_km = @size_km::float8, heading = @heading, replaced = replaced + 1, created_at = @created_at
 WHERE game_id = @game_id AND n = @n;
 
 -- name: ShowRound :exec
@@ -61,8 +62,10 @@ SET shown_at = @shown_at, deadline = @deadline,
 WHERE game_id = @game_id AND n = @n;
 
 -- name: GameRounds :many
--- Every round of a game with the player's guess, oldest first.
+-- Every round of a game with the player's guess, oldest first. size_km is what the round is
+-- scored by: its own, or the game's for rounds from before mixed maps.
 SELECT r.n, r.panorama_id, r.provider, r.snap_km, r.heading, r.replaced,
+       coalesce(r.size_km, x.size_km)::float8 AS size_km,
        ST_Y(r.near)::float8 AS near_lat, ST_X(r.near)::float8 AS near_lon,
        ST_Y(coalesce(r.actual, p.pos))::float8 AS actual_lat,
        ST_X(coalesce(r.actual, p.pos))::float8 AS actual_lon,
@@ -72,6 +75,7 @@ SELECT r.n, r.panorama_id, r.provider, r.snap_km, r.heading, r.replaced,
        (g.pos IS NOT NULL)::boolean AS has_guess,
        coalesce(ST_Y(g.pos), 0)::float8 AS guess_lat, coalesce(ST_X(g.pos), 0)::float8 AS guess_lon
 FROM rounds r
+JOIN games x ON x.id = r.game_id
 JOIN panoramas p ON p.id = r.panorama_id
 LEFT JOIN guesses g ON g.game_id = r.game_id AND g.n = r.n AND g.user_id = @user_id
 WHERE r.game_id = @game_id

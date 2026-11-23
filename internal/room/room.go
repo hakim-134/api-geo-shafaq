@@ -140,6 +140,7 @@ type Round struct {
 	Library   geo.Point                 `json:"library"` // the panorama's position in the library
 	Near      geo.Point                 `json:"near"`
 	SnapKm    float64                   `json:"snapKm"`
+	SizeKm    float64                   `json:"sizeKm,omitempty"` // scored and hinted by: its own part's on a mix; 0 = the game's
 	Heading   float64                   `json:"heading"`
 	Swap      int                       `json:"swap"` // panoramas swapped because no viewer could open one
 	CreatedAt time.Time                 `json:"createdAt"`
@@ -587,18 +588,28 @@ func (r *Room) finish(ctx context.Context) {
 // places as long as the map has others (after 40 tries it takes any panorama this game hasn't
 // shown, so a small map still plays).
 func (r *Room) used() maps.Used {
-	used := maps.Used{IDs: map[int64]bool{}, Pos: slices.Clone(r.st.Prev)}
+	used := maps.Used{IDs: map[int64]bool{}, Pos: slices.Clone(r.st.Prev), Rounds: make([]int64, 0, len(r.st.Done))}
 	for _, d := range r.st.Done {
 		used.IDs[d.Round.PanoID] = true
 		used.Pos = append(used.Pos, d.Round.Actual)
+		used.Rounds = append(used.Rounds, d.Round.PanoID)
 	}
 	return used
+}
+
+// sizeOf is what a round is scored and hinted by: its own size (a mix's part), or the game's
+// for a round from a snapshot saved before rounds had one.
+func (r *Room) sizeOf(rd *Round) float64 {
+	if rd.SizeKm != 0 {
+		return rd.SizeKm
+	}
+	return r.st.SizeKm
 }
 
 func (r *Room) beginRound(ctx context.Context, n int, pick game.Pick) {
 	rd := &Round{
 		N: n, PanoID: pick.Cand.ID, Provider: pick.Cand.Provider, Ref: pick.Cand.Ref,
-		Library: pick.Cand.Pos, Near: pick.Near, SnapKm: r.m.Pick.SnapKm, Heading: pick.Heading,
+		Library: pick.Cand.Pos, Near: pick.Near, SnapKm: pick.SnapKm, SizeKm: pick.SizeKm, Heading: pick.Heading,
 		CreatedAt: r.now(), Actual: pick.Cand.Pos,
 		In: map[uuid.UUID]bool{}, Seen: map[uuid.UUID]bool{}, Hints: map[uuid.UUID][]game.Hint{},
 		Pins: map[uuid.UUID]geo.Point{}, Guesses: map[uuid.UUID]*Guess{},
@@ -695,6 +706,7 @@ func (r *Room) Fail(ctx context.Context, id uuid.UUID, n, swap int, notFound boo
 	}
 	rd.PanoID, rd.Provider, rd.Ref = pick.Cand.ID, pick.Cand.Provider, pick.Cand.Ref
 	rd.Library, rd.Actual, rd.Near, rd.Heading = pick.Cand.Pos, pick.Cand.Pos, pick.Near, pick.Heading
+	rd.SnapKm, rd.SizeKm = pick.SnapKm, pick.SizeKm // a mix's swap may come from another part
 	rd.Swap++
 	rd.CreatedAt = r.now()
 	r.hub.Games.Usage.Count(ctx, rd.Provider)
@@ -721,7 +733,7 @@ func (r *Room) Hint(ctx context.Context, id uuid.UUID, n int) (*game.Hint, error
 	if r.st.Rules.HintsLeft(len(mine), p.HintsUsed) <= 0 {
 		return nil, game.ErrNoHints
 	}
-	h, err := r.hub.Games.HintFor(ctx, r.st.Rules.Hints.Kind, r.st.SizeKm, len(mine), rd.Actual, r.st.Seed, n)
+	h, err := r.hub.Games.HintFor(ctx, r.st.Rules.Hints.Kind, r.sizeOf(rd), len(mine), rd.Actual, r.st.Seed, n)
 	if err != nil {
 		return nil, err
 	}
@@ -844,7 +856,7 @@ func (r *Room) endRound(ctx context.Context) {
 		if pos != nil {
 			km := geo.DistanceKm(rd.Actual, *pos)
 			sc.Km = &km
-			base := score.Round(km, r.st.SizeKm, r.st.Rules.ScoreScale)
+			base := score.Round(km, r.sizeOf(rd), r.st.Rules.ScoreScale)
 			sc.Score = score.WithHints(base, sc.Hints, r.st.Rules.Hints.Cost)
 			if sc.Score != base {
 				sc.Base = base
@@ -935,7 +947,7 @@ func (r *Room) writeRound(ctx context.Context, d *Done) error {
 		}
 		err = q.CreateRoomRound(ctx, store.CreateRoomRoundParams{
 			GameID: gameID, N: int32(rd.N), PanoramaID: rd.PanoID, Provider: rd.Provider,
-			NearLat: rd.Near.Lat, NearLon: rd.Near.Lon, SnapKm: rd.SnapKm, Heading: float32(rd.Heading),
+			NearLat: rd.Near.Lat, NearLon: rd.Near.Lon, SnapKm: rd.SnapKm, SizeKm: r.sizeOf(rd), Heading: float32(rd.Heading),
 			ActualLat: rd.Actual.Lat, ActualLon: rd.Actual.Lon,
 			CreatedAt: rd.CreatedAt, ShownAt: rd.ShownAt, Deadline: rd.Deadline, Replaced: int32(rd.Swap),
 		})

@@ -116,9 +116,9 @@ func (q *Queries) CreateGame(ctx context.Context, arg CreateGameParams) (Game, e
 }
 
 const createRound = `-- name: CreateRound :exec
-INSERT INTO rounds (game_id, n, panorama_id, provider, near, snap_km, heading, created_at)
+INSERT INTO rounds (game_id, n, panorama_id, provider, near, snap_km, size_km, heading, created_at)
 VALUES ($1, $2, $3, $4,
-        ST_SetSRID(ST_MakePoint($5::float8, $6::float8), 4326), $7, $8, $9)
+        ST_SetSRID(ST_MakePoint($5::float8, $6::float8), 4326), $7, $8::float8, $9, $10)
 `
 
 type CreateRoundParams struct {
@@ -129,10 +129,12 @@ type CreateRoundParams struct {
 	NearLon    float64
 	NearLat    float64
 	SnapKm     float64
+	SizeKm     float64
 	Heading    float32
 	CreatedAt  time.Time
 }
 
+// size_km: what the round is scored by, its own part's size on a mixed map.
 func (q *Queries) CreateRound(ctx context.Context, arg CreateRoundParams) error {
 	_, err := q.db.Exec(ctx, createRound,
 		arg.GameID,
@@ -142,6 +144,7 @@ func (q *Queries) CreateRound(ctx context.Context, arg CreateRoundParams) error 
 		arg.NearLon,
 		arg.NearLat,
 		arg.SnapKm,
+		arg.SizeKm,
 		arg.Heading,
 		arg.CreatedAt,
 	)
@@ -159,6 +162,7 @@ func (q *Queries) FinishGame(ctx context.Context, id uuid.UUID) error {
 
 const gameRounds = `-- name: GameRounds :many
 SELECT r.n, r.panorama_id, r.provider, r.snap_km, r.heading, r.replaced,
+       coalesce(r.size_km, x.size_km)::float8 AS size_km,
        ST_Y(r.near)::float8 AS near_lat, ST_X(r.near)::float8 AS near_lon,
        ST_Y(coalesce(r.actual, p.pos))::float8 AS actual_lat,
        ST_X(coalesce(r.actual, p.pos))::float8 AS actual_lon,
@@ -168,6 +172,7 @@ SELECT r.n, r.panorama_id, r.provider, r.snap_km, r.heading, r.replaced,
        (g.pos IS NOT NULL)::boolean AS has_guess,
        coalesce(ST_Y(g.pos), 0)::float8 AS guess_lat, coalesce(ST_X(g.pos), 0)::float8 AS guess_lon
 FROM rounds r
+JOIN games x ON x.id = r.game_id
 JOIN panoramas p ON p.id = r.panorama_id
 LEFT JOIN guesses g ON g.game_id = r.game_id AND g.n = r.n AND g.user_id = $1
 WHERE r.game_id = $2
@@ -186,6 +191,7 @@ type GameRoundsRow struct {
 	SnapKm     float64
 	Heading    float32
 	Replaced   int32
+	SizeKm     float64
 	NearLat    float64
 	NearLon    float64
 	ActualLat  float64
@@ -204,7 +210,8 @@ type GameRoundsRow struct {
 	GuessLon   float64
 }
 
-// Every round of a game with the player's guess, oldest first.
+// Every round of a game with the player's guess, oldest first. size_km is what the round is
+// scored by: its own, or the game's for rounds from before mixed maps.
 func (q *Queries) GameRounds(ctx context.Context, arg GameRoundsParams) ([]GameRoundsRow, error) {
 	rows, err := q.db.Query(ctx, gameRounds, arg.UserID, arg.GameID)
 	if err != nil {
@@ -221,6 +228,7 @@ func (q *Queries) GameRounds(ctx context.Context, arg GameRoundsParams) ([]GameR
 			&i.SnapKm,
 			&i.Heading,
 			&i.Replaced,
+			&i.SizeKm,
 			&i.NearLat,
 			&i.NearLon,
 			&i.ActualLat,
@@ -384,8 +392,8 @@ const replaceRoundPanorama = `-- name: ReplaceRoundPanorama :exec
 UPDATE rounds
 SET panorama_id = $1, provider = $2,
     near = ST_SetSRID(ST_MakePoint($3::float8, $4::float8), 4326),
-    snap_km = $5, heading = $6, replaced = replaced + 1, created_at = $7
-WHERE game_id = $8 AND n = $9
+    snap_km = $5, size_km = $6::float8, heading = $7, replaced = replaced + 1, created_at = $8
+WHERE game_id = $9 AND n = $10
 `
 
 type ReplaceRoundPanoramaParams struct {
@@ -394,6 +402,7 @@ type ReplaceRoundPanoramaParams struct {
 	NearLon    float64
 	NearLat    float64
 	SnapKm     float64
+	SizeKm     float64
 	Heading    float32
 	CreatedAt  time.Time
 	GameID     uuid.UUID
@@ -407,6 +416,7 @@ func (q *Queries) ReplaceRoundPanorama(ctx context.Context, arg ReplaceRoundPano
 		arg.NearLon,
 		arg.NearLat,
 		arg.SnapKm,
+		arg.SizeKm,
 		arg.Heading,
 		arg.CreatedAt,
 		arg.GameID,

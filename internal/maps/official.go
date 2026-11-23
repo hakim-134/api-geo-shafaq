@@ -26,6 +26,9 @@ type Pick struct {
 	JitterKm    float64 `json:"jitterKm"`        // move the search point up to this far, for variety
 	StreetsOnly bool    `json:"streetsOnly"`     // only panoramas on named streets
 	Frame       string  `json:"frame,omitempty"` // play on this map's box and size, not the map's own
+	// A mix (POST /v1/maps/mix): these maps, each round picked and scored by one of them in
+	// turn. The fields above don't apply to a mix; each part has its own.
+	Parts []string `json:"parts,omitempty"`
 }
 
 type official struct {

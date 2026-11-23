@@ -8,10 +8,10 @@ RETURNING id;
 
 -- name: CreateRoomRound :exec
 -- A finished room round in one player's game, shown and with its deadline.
-INSERT INTO rounds (game_id, n, panorama_id, provider, near, snap_km, heading, actual,
+INSERT INTO rounds (game_id, n, panorama_id, provider, near, snap_km, size_km, heading, actual,
                     created_at, shown_at, deadline, replaced)
 VALUES (@game_id, @n, @panorama_id, @provider,
-        ST_SetSRID(ST_MakePoint(@near_lon::float8, @near_lat::float8), 4326), @snap_km, @heading,
+        ST_SetSRID(ST_MakePoint(@near_lon::float8, @near_lat::float8), 4326), @snap_km, @size_km::float8, @heading,
         ST_SetSRID(ST_MakePoint(@actual_lon::float8, @actual_lat::float8), 4326),
         @created_at, @shown_at, @deadline, @replaced)
 ON CONFLICT (game_id, n) DO NOTHING;

@@ -28,6 +28,20 @@ ON CONFLICT (slug) DO UPDATE SET
     pick = excluded.pick, updated_at = now()
 RETURNING id;
 
+-- name: InsertMixMap :one
+-- A mix of maps (POST /v1/maps/mix), made the first time these parts are played together.
+-- Unlisted, like a place's map: the menu never shows it. No row back: another request made it.
+INSERT INTO maps (slug, name_uz, name_ru, name_en, visibility, rules, pick, sort)
+VALUES (@slug, @name_uz, @name_ru, @name_en, 'unlisted', @rules, @pick, 2000)
+ON CONFLICT (slug) DO NOTHING
+RETURNING id;
+
+-- name: AddMapPlaceIDs :exec
+-- A mix's places, the union of its parts': Faces finds its face without loading it. Nothing
+-- picks its panoramas from them (each part picks its own).
+INSERT INTO map_sources (map_id, place_id)
+SELECT @map_id, unnest(@place_ids::bigint[]);
+
 -- name: ClearMapSources :exec
 DELETE FROM map_sources WHERE map_id = @map_id;
 
@@ -58,7 +72,8 @@ WHERE p.status = 'active'
   AND (@streets_only::boolean = false OR p.street_id IS NOT NULL)
   AND EXISTS (SELECT 1 FROM map_sources s
               WHERE s.map_id = @map_id
-                AND (s.place_id = ANY (p.place_ids) OR s.street_id = p.street_id OR s.panorama_id = p.id));
+                AND (s.place_id = ANY (p.place_ids) OR s.street_id = p.street_id OR s.panorama_id = p.id))
+ORDER BY p.id;
 
 -- name: MapPlaceExtent :one
 -- The bounding box of a map's places: its size D for scoring.

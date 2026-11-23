@@ -195,6 +195,31 @@ func (s *Server) GetMap(w http.ResponseWriter, r *http.Request, slug string) {
 	writeJSON(w, http.StatusOK, mapSummary(m, s.games.Reg.Allowed(nil), s.games.Reg, pv))
 }
 
+// MixMap is the map picker's list as one map, made the first time these parts are played
+// together; a game, a room or a challenge then plays it by its slug like any other map.
+func (s *Server) MixMap(w http.ResponseWriter, r *http.Request) {
+	var body oapi.MixMap
+	if !decode(r, &body) {
+		writeError(w, http.StatusBadRequest, "bad_input")
+		return
+	}
+	// a new mix is a new row: not a way to fill the database
+	if !s.allow(w, r, "mix:"+s.clientIP(r), 300, time.Hour) {
+		return
+	}
+	m, err := s.catalog.Mix(r.Context(), body.Parts)
+	if err != nil {
+		fail(w, r, err)
+		return
+	}
+	pv, err := s.placeView(r, true)
+	if err != nil {
+		fail(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, mapSummary(m, s.games.Reg.Allowed(nil), s.games.Reg, pv))
+}
+
 func (s *Server) GetPlace(w http.ResponseWriter, r *http.Request, slug string) {
 	pv, err := s.placeView(r, true)
 	if err != nil {

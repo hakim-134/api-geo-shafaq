@@ -18,6 +18,7 @@ import (
 	"github.com/hakim-134/api-geo-shafaq/internal/places"
 	"github.com/hakim-134/api-geo-shafaq/internal/provider"
 	"github.com/hakim-134/api-geo-shafaq/internal/rules"
+	"github.com/hakim-134/api-geo-shafaq/internal/score"
 	"github.com/hakim-134/api-geo-shafaq/internal/store"
 	"github.com/hakim-134/api-geo-shafaq/internal/testdb"
 )
@@ -340,6 +341,60 @@ func TestRoomSurvivesARestart(t *testing.T) {
 	must(t, err)
 	if g.Status != "finished" || g.Total != 5000 {
 		t.Fatalf("b's game after the restart: %s %d", g.Status, g.Total)
+	}
+}
+
+func TestOldRoomSnapshotScoresByTheGamesSize(t *testing.T) {
+	f := setup(t, 1)
+	ctx := context.Background()
+	rs := roomRules(1, 0)
+	rs.Hints.Kind = rules.HintCircle
+	rm, _ := f.open(rs)
+	player := f.users[0]
+	must(t, rm.Start(ctx, player.ID))
+	must(t, rm.Shown(ctx, player.ID, 1, nil))
+
+	// An old snapshot has the game's size but no size on the round.
+	code := rm.st.Code
+	raw, err := f.store.Load(ctx, code)
+	must(t, err)
+	var snapshot map[string]json.RawMessage
+	must(t, json.Unmarshal(raw, &snapshot))
+	var round map[string]json.RawMessage
+	must(t, json.Unmarshal(snapshot["round"], &round))
+	delete(round, "sizeKm")
+	snapshot["round"], err = json.Marshal(round)
+	must(t, err)
+	const gameSize = 100
+	snapshot["sizeKm"], err = json.Marshal(gameSize)
+	must(t, err)
+	raw, err = json.Marshal(snapshot)
+	must(t, err)
+	must(t, f.store.Save(ctx, code, raw))
+
+	restored, err := f.newHub().Get(ctx, code)
+	must(t, err)
+	must(t, restored.Join(ctx, &page{}, player))
+	actual := restored.st.Round.Actual
+	hint, err := restored.Hint(ctx, player.ID, 1)
+	must(t, err)
+	if hint.RadiusKm != gameSize*0.04 {
+		t.Fatalf("restored room hint radius: %.2f km, want %.2f km", hint.RadiusKm, gameSize*0.04)
+	}
+	guess := geo.Offset(actual, 1, 0)
+	must(t, restored.Guess(ctx, player.ID, 1, &guess))
+
+	base := score.Round(geo.DistanceKm(actual, guess), gameSize, rs.ScoreScale)
+	want := score.WithHints(base, 1, rs.Hints.Cost)
+	v := restored.View(player.ID)
+	if len(v.Results) != 1 || len(v.Results[0].Scores) != 1 || v.Results[0].Scores[0].Score != want {
+		t.Fatalf("restored room result: %+v, want %d", v.Results, want)
+	}
+	gameID := restored.st.GameRows[player.ID]
+	g, err := f.svc.Get(ctx, player.ID, gameID)
+	must(t, err)
+	if len(g.Rounds) != 1 || g.Rounds[0].Result == nil || g.Rounds[0].Result.Score != want || g.Rounds[0].Result.Base != base {
+		t.Fatalf("saved room result: %+v, want %d", g.Rounds, want)
 	}
 }
 

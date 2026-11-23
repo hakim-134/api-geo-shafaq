@@ -13,6 +13,11 @@ import (
 type Used struct {
 	IDs map[int64]bool
 	Pos []geo.Point
+	// Rounds counts turns when IDs also contains failed or upcoming panoramas. When nil,
+	// the mix counts IDs.
+	Rounds []int64
+	// Streets is the mix's set of streets already shown across all its parts.
+	Streets map[int64]bool
 }
 
 // PickRound picks a panorama for a round: a group first (weighted by its size to the power
@@ -21,12 +26,15 @@ type Used struct {
 // to them (3% of the map's size: 1.2 km in Tashkent); after 40 tries it settles for anything
 // not shown yet. ok is false when the allowed providers have nothing here.
 func (m *Map) PickRound(rng *rand.Rand, allowed map[string]bool, used Used) (c Candidate, ok bool) {
-	return m.pick(rng, allowed, used, nil)
+	return m.PickAt(rng, allowed, used, rules.AnyPlace)
 }
 
 // PickAt picks among the map's places of this difficulty first, then any: a map with few of
-// them still plays.
+// them still plays. On a mix, one part picks (pickPart).
 func (m *Map) PickAt(rng *rand.Rand, allowed map[string]bool, used Used, d rules.Difficulty) (Candidate, bool) {
+	if len(m.parts) > 0 {
+		return m.pickPart(rng, allowed, used, d)
+	}
 	if d != rules.AnyPlace {
 		lo, hi := m.band(d)
 		c, ok := m.pick(rng, allowed, used, func(cand Candidate) bool {
@@ -72,7 +80,8 @@ func (m *Map) pick(rng *rand.Rand, allowed map[string]bool, used Used, fits func
 	for _, idx := range m.groups {
 		var in []int
 		for _, i := range idx {
-			if allowed[m.Cands[i].Provider] && !used.IDs[m.Cands[i].ID] && (fits == nil || fits(m.Cands[i])) {
+			c := m.Cands[i]
+			if allowed[c.Provider] && !used.IDs[c.ID] && !used.Streets[c.StreetID] && (fits == nil || fits(c)) {
 				in = append(in, i)
 			}
 		}
@@ -140,10 +149,11 @@ func far(p geo.Point, others []geo.Point, km float64) bool {
 }
 
 // Near is where the viewer looks for the panorama: the library point, moved up to JitterKm
-// for variety on maps whose points are sparse.
+// (of the map it came from) for variety on maps whose points are sparse.
 func (m *Map) Near(rng *rand.Rand, c Candidate) geo.Point {
-	if m.Pick.JitterKm <= 0 {
+	jitter := m.Source(c).Pick.JitterKm
+	if jitter <= 0 {
 		return c.Pos
 	}
-	return geo.Offset(c.Pos, rng.Float64()*m.Pick.JitterKm, rng.Float64()*2*math.Pi)
+	return geo.Offset(c.Pos, rng.Float64()*jitter, rng.Float64()*2*math.Pi)
 }

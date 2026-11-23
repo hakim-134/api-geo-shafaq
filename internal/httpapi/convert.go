@@ -106,12 +106,7 @@ func mapSummary(m *maps.Map, allowed map[string]bool, reg *provider.Registry, pv
 		out.Groups = shown.Streets
 	}
 	if pv.tree != nil {
-		slugs := make([]string, 0, len(m.Places))
-		for _, id := range m.Places {
-			if p := pv.tree.ByID(id); p != nil {
-				slugs = append(slugs, p.Slug)
-			}
-		}
+		slugs := placeSlugs(m, pv.tree)
 		out.Places = &slugs
 	}
 	if p := m.Place(pv.tree); p != nil {
@@ -119,6 +114,30 @@ func mapSummary(m *maps.Map, allowed map[string]bool, reg *provider.Registry, pv
 		if pv.progress {
 			pr := progressOut(p.Progress(pv.rounds))
 			out.Progress = &pr
+		}
+	}
+	if m.Mix() {
+		parts := make([]oapi.MapPart, 0, len(m.Parts()))
+		for _, p := range m.Parts() {
+			parts = append(parts, oapi.MapPart{
+				Slug: p.Slug, Name: text(p.Name), Face: strPtr(p.Face), Places: placeSlugs(p, pv.tree),
+				Panoramas: p.Shown(allowed).Panoramas,
+			})
+		}
+		out.Parts = &parts
+	}
+	return out
+}
+
+// placeSlugs are a map's places by slug; none without the tree.
+func placeSlugs(m *maps.Map, t *places.Tree) []string {
+	out := make([]string, 0, len(m.Places))
+	if t == nil {
+		return out
+	}
+	for _, id := range m.Places {
+		if p := t.ByID(id); p != nil {
+			out = append(out, p.Slug)
 		}
 	}
 	return out

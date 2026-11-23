@@ -56,15 +56,19 @@ func (c *Catalog) makePlaceMap(ctx context.Context, slug string) error {
 	}
 	rulesJSON, _ := json.Marshal(rules.Default)
 	pickJSON, _ := json.Marshal(PlacePick(p))
-	id, err := c.q.UpsertPlaceMap(ctx, store.UpsertPlaceMapParams{
-		Slug: PlaceMap(slug), NameUz: p.Name.Uz, NameRu: p.Name.Ru, NameEn: p.Name.En,
-		DescUz: top.Uz, DescRu: top.Ru, DescEn: top.En, Rules: rulesJSON, Pick: pickJSON,
+	// Another server can load the place as soon as the map row is visible.
+	return pgx.BeginFunc(ctx, c.pool, func(tx pgx.Tx) error {
+		q := store.New(tx)
+		id, err := q.UpsertPlaceMap(ctx, store.UpsertPlaceMapParams{
+			Slug: PlaceMap(slug), NameUz: p.Name.Uz, NameRu: p.Name.Ru, NameEn: p.Name.En,
+			DescUz: top.Uz, DescRu: top.Ru, DescEn: top.En, Rules: rulesJSON, Pick: pickJSON,
+		})
+		if err != nil {
+			return err
+		}
+		if err := q.ClearMapSources(ctx, id); err != nil {
+			return err
+		}
+		return q.AddMapPlace(ctx, store.AddMapPlaceParams{MapID: id, PlaceSlug: slug})
 	})
-	if err != nil {
-		return err
-	}
-	if err := c.q.ClearMapSources(ctx, id); err != nil {
-		return err
-	}
-	return c.q.AddMapPlace(ctx, store.AddMapPlaceParams{MapID: id, PlaceSlug: slug})
 }

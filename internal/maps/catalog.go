@@ -44,6 +44,45 @@ type Map struct {
 	Face     string          // the place whose picture stands for the map (Faces)
 	Owner    *uuid.UUID      // a player's map: who made it
 	Private  bool            // only its owner plays it
+	parts    []*Map          // a mix: its maps, in Pick.Parts order
+	ids      map[int64]bool  // the panoramas in Cands, so a mix can count each part's rounds
+}
+
+// Mix says whether the map is a mix of other maps (Pick.Parts).
+func (m *Map) Mix() bool { return len(m.Pick.Parts) > 0 }
+
+// Parts are a mix's maps, in the order first given; nil for any other map.
+func (m *Map) Parts() []*Map { return m.parts }
+
+// Source is the map a candidate came from: a mix's part, else the map itself. A round is
+// searched (SnapKm, JitterKm) and scored (SizeKm) by its source.
+func (m *Map) Source(c Candidate) *Map {
+	if c.From != nil {
+		return c.From
+	}
+	return m
+}
+
+// Metric is the map's name on the metrics: every mix counts as one, so they don't make a
+// label each.
+func (m *Map) Metric() string {
+	if m.Mix() {
+		return "mix"
+	}
+	return m.Slug
+}
+
+// add puts a panorama on the map, in its group.
+func (m *Map) add(c Candidate) {
+	if m.groups == nil {
+		m.groups = map[int64][]int{}
+	}
+	if m.ids == nil {
+		m.ids = map[int64]bool{}
+	}
+	m.groups[c.Group] = append(m.groups[c.Group], len(m.Cands))
+	m.ids[c.ID] = true
+	m.Cands = append(m.Cands, c)
 }
 
 // Open says whether this player may see and start this map. A private map answers not found to
@@ -66,6 +105,7 @@ type Candidate struct {
 	StreetID int64
 	Group    int64
 	Hardness float64 // how hard to guess, 0 to 1
+	From     *Map    // a mix's round: the part it came from (Map.Source); nil = the map itself
 }
 
 // Shown is what the menu tells players about a map. Only the given providers count, so test
@@ -109,6 +149,26 @@ func (m *Map) Count(allowed map[string]bool) int {
 		}
 	}
 	return n
+}
+
+// RoundCount counts the panoramas a game can show, one per named street on a mix.
+func (m *Map) RoundCount(allowed map[string]bool) int {
+	if !m.Mix() {
+		return m.Count(allowed)
+	}
+	streets := map[int64]bool{}
+	unnamed := 0
+	for _, c := range m.Cands {
+		if !allowed[c.Provider] {
+			continue
+		}
+		if c.StreetID == 0 {
+			unnamed++
+		} else {
+			streets[c.StreetID] = true
+		}
+	}
+	return unnamed + len(streets)
 }
 
 // Catalog serves maps from memory, reloading each a few minutes after it was read, so the
@@ -155,16 +215,25 @@ func (c *Catalog) Official(ctx context.Context) ([]*Map, error) {
 
 // Get returns a map by slug.
 func (c *Catalog) Get(ctx context.Context, slug string) (*Map, error) {
+	return c.get(ctx, slug, false)
+}
+
+func (c *Catalog) get(ctx context.Context, slug string, asPart bool) (*Map, error) {
 	c.mu.Lock()
 	e := c.entries[slug]
 	c.mu.Unlock()
 	if e != nil && time.Since(e.loaded) < c.ttl {
+		if asPart {
+			if err := e.m.mixPartError(); err != nil {
+				return nil, err
+			}
+		}
 		return e.m, nil
 	}
-	m, err := c.load(ctx, slug)
+	m, err := c.load(ctx, slug, asPart)
 	if errors.Is(err, ErrNotFound) && strings.HasPrefix(slug, PlacePrefix) {
 		if err = c.makePlaceMap(ctx, strings.TrimPrefix(slug, PlacePrefix)); err == nil {
-			m, err = c.load(ctx, slug)
+			m, err = c.load(ctx, slug, asPart)
 		}
 	}
 	if err != nil {
@@ -196,7 +265,7 @@ func (c *Catalog) ByID(ctx context.Context, id int64) (*Map, error) {
 	return c.Get(ctx, row.Slug)
 }
 
-func (c *Catalog) load(ctx context.Context, slug string) (*Map, error) {
+func (c *Catalog) load(ctx context.Context, slug string, asPart bool) (*Map, error) {
 	row, err := c.q.GetMapBySlug(ctx, slug)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
@@ -211,6 +280,7 @@ func (c *Catalog) load(ctx context.Context, slug string) (*Map, error) {
 		Desc:     places.NewText(row.DescUz, row.DescRu, row.DescEn),
 		Official: row.OwnerID == nil,
 		groups:   map[int64][]int{},
+		ids:      map[int64]bool{},
 		Owner:    row.OwnerID,
 		Private:  row.Visibility == "private",
 	}
@@ -219,6 +289,14 @@ func (c *Catalog) load(ctx context.Context, slug string) (*Map, error) {
 	}
 	if err := json.Unmarshal(row.Pick, &m.Pick); err != nil {
 		return nil, fmt.Errorf("map %s pick: %w", slug, err)
+	}
+	if asPart {
+		if err := m.mixPartError(); err != nil {
+			return nil, err
+		}
+	}
+	if m.Mix() {
+		return m, c.loadMix(ctx, m)
 	}
 
 	cands, err := c.q.MapCandidates(ctx, store.MapCandidatesParams{MapID: row.ID, StreetsOnly: m.Pick.StreetsOnly})
@@ -242,8 +320,7 @@ func (c *Catalog) load(ctx context.Context, slug string) (*Map, error) {
 		case "region":
 			cand.Group = r.RegionID
 		}
-		m.groups[cand.Group] = append(m.groups[cand.Group], len(m.Cands))
-		m.Cands = append(m.Cands, cand)
+		m.add(cand)
 		pbox = pbox.Extend(cand.Pos)
 	}
 

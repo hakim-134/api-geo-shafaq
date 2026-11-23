@@ -27,6 +27,23 @@ func (q *Queries) AddMapPlace(ctx context.Context, arg AddMapPlaceParams) error 
 	return err
 }
 
+const addMapPlaceIDs = `-- name: AddMapPlaceIDs :exec
+INSERT INTO map_sources (map_id, place_id)
+SELECT $1, unnest($2::bigint[])
+`
+
+type AddMapPlaceIDsParams struct {
+	MapID    int64
+	PlaceIds []int64
+}
+
+// A mix's places, the union of its parts': Faces finds its face without loading it. Nothing
+// picks its panoramas from them (each part picks its own).
+func (q *Queries) AddMapPlaceIDs(ctx context.Context, arg AddMapPlaceIDsParams) error {
+	_, err := q.db.Exec(ctx, addMapPlaceIDs, arg.MapID, arg.PlaceIds)
+	return err
+}
+
 const addMissedStreets = `-- name: AddMissedStreets :exec
 INSERT INTO map_sources (map_id, street_id)
 SELECT $1, p.street_id
@@ -113,6 +130,38 @@ func (q *Queries) GetMapBySlug(ctx context.Context, slug string) (Map, error) {
 	return i, err
 }
 
+const insertMixMap = `-- name: InsertMixMap :one
+INSERT INTO maps (slug, name_uz, name_ru, name_en, visibility, rules, pick, sort)
+VALUES ($1, $2, $3, $4, 'unlisted', $5, $6, 2000)
+ON CONFLICT (slug) DO NOTHING
+RETURNING id
+`
+
+type InsertMixMapParams struct {
+	Slug   string
+	NameUz string
+	NameRu string
+	NameEn string
+	Rules  json.RawMessage
+	Pick   json.RawMessage
+}
+
+// A mix of maps (POST /v1/maps/mix), made the first time these parts are played together.
+// Unlisted, like a place's map: the menu never shows it. No row back: another request made it.
+func (q *Queries) InsertMixMap(ctx context.Context, arg InsertMixMapParams) (int64, error) {
+	row := q.db.QueryRow(ctx, insertMixMap,
+		arg.Slug,
+		arg.NameUz,
+		arg.NameRu,
+		arg.NameEn,
+		arg.Rules,
+		arg.Pick,
+	)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
+}
+
 const listOfficialMaps = `-- name: ListOfficialMaps :many
 SELECT id, slug, owner_id, name_uz, name_ru, name_en, desc_uz, desc_ru, desc_en, visibility, rules, pick, sort, created_at, updated_at FROM maps WHERE owner_id IS NULL AND visibility = 'public' ORDER BY sort, id
 `
@@ -175,6 +224,7 @@ WHERE p.status = 'active'
   AND EXISTS (SELECT 1 FROM map_sources s
               WHERE s.map_id = $2
                 AND (s.place_id = ANY (p.place_ids) OR s.street_id = p.street_id OR s.panorama_id = p.id))
+ORDER BY p.id
 `
 
 type MapCandidatesParams struct {

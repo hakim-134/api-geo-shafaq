@@ -50,12 +50,12 @@ func (q *Queries) CreateRoomGame(ctx context.Context, arg CreateRoomGameParams) 
 }
 
 const createRoomRound = `-- name: CreateRoomRound :exec
-INSERT INTO rounds (game_id, n, panorama_id, provider, near, snap_km, heading, actual,
+INSERT INTO rounds (game_id, n, panorama_id, provider, near, snap_km, size_km, heading, actual,
                     created_at, shown_at, deadline, replaced)
 VALUES ($1, $2, $3, $4,
-        ST_SetSRID(ST_MakePoint($5::float8, $6::float8), 4326), $7, $8,
-        ST_SetSRID(ST_MakePoint($9::float8, $10::float8), 4326),
-        $11, $12, $13, $14)
+        ST_SetSRID(ST_MakePoint($5::float8, $6::float8), 4326), $7, $8::float8, $9,
+        ST_SetSRID(ST_MakePoint($10::float8, $11::float8), 4326),
+        $12, $13, $14, $15)
 ON CONFLICT (game_id, n) DO NOTHING
 `
 
@@ -67,6 +67,7 @@ type CreateRoomRoundParams struct {
 	NearLon    float64
 	NearLat    float64
 	SnapKm     float64
+	SizeKm     float64
 	Heading    float32
 	ActualLon  float64
 	ActualLat  float64
@@ -86,6 +87,7 @@ func (q *Queries) CreateRoomRound(ctx context.Context, arg CreateRoomRoundParams
 		arg.NearLon,
 		arg.NearLat,
 		arg.SnapKm,
+		arg.SizeKm,
 		arg.Heading,
 		arg.ActualLon,
 		arg.ActualLat,
