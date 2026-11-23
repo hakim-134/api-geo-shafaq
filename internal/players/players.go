@@ -25,6 +25,8 @@ import (
 // national or gambling-like (no 🍑, no 🎲), and none whose word is a tease (🦥 "yalqov",
 // lazy; 🐵 "maymun", said of people too). The word is the guest's name with two digits
 // ("Ukki 42"): Uzbek, the same in every language, so a friend reads out the name they see.
+// None is mostly yellow: the face sits on a gold coin, and 🌙 ⭐ 🍋 🌽 🌻 vanished into it
+// (migration 00017 gave their players new faces).
 var avatars = [][2]string{
 	{"🐼", "Panda"}, {"🦊", "Tulki"}, {"🐨", "Koala"}, {"🐯", "Yo‘lbars"}, {"🦁", "Sher"},
 	{"🐸", "Qurbaqa"}, {"🦉", "Ukki"}, {"🐧", "Pingvin"}, {"🐢", "Toshbaqa"},
@@ -34,9 +36,8 @@ var avatars = [][2]string{
 	{"🦜", "To‘tiqush"}, {"🐰", "Quyon"}, {"🐻", "Ayiq"}, {"🐻‍❄️", "Oqayiq"}, {"🐹", "Xomyak"},
 	{"🐱", "Mushuk"}, {"🐶", "Kuchukcha"}, {"🐴", "Ot"}, {"🐫", "Tuya"}, {"🦌", "Bug‘u"},
 	{"🦚", "Tovus"}, {"🦭", "Tyulen"}, {"🐠", "Baliqcha"}, {"🦀", "Qisqichbaqa"}, {"🐌", "Chig‘anoq"},
-	{"🌵", "Kaktus"}, {"🌻", "Kungaboqar"}, {"🌷", "Lola"}, {"🍀", "Beda"}, {"🌳", "Chinor"},
-	{"🍉", "Tarvuz"}, {"🍎", "Olma"}, {"🍇", "Uzum"}, {"🍋", "Limon"}, {"🥝", "Kivi"},
-	{"🥕", "Sabzi"}, {"🌽", "Makkajo‘xori"}, {"🍄", "Qo‘ziqorin"}, {"⭐", "Yulduz"}, {"🌙", "Oy"},
+	{"🌵", "Kaktus"}, {"🌷", "Lola"}, {"🍀", "Beda"}, {"🌳", "Chinor"}, {"🍉", "Tarvuz"},
+	{"🍎", "Olma"}, {"🍇", "Uzum"}, {"🥝", "Kivi"}, {"🥕", "Sabzi"}, {"🍄", "Qo‘ziqorin"},
 	{"⛰️", "Tog‘"}, {"🎈", "Shar"}, {"🪁", "Varrak"}, {"🚲", "Velosiped"}, {"🚀", "Raketa"},
 	{"⚽", "To‘p"}, {"🏀", "Basketbol"}, {"🎨", "Rassom"}, {"🧩", "Jumboq"}, {"📚", "Kitob"},
 	{"🎧", "Quloqchin"}, {"🧭", "Kompas"}, {"🗺️", "Xarita"},

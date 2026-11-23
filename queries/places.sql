@@ -85,12 +85,14 @@ SELECT slug, ST_AsGeoJSON(geom_simple, 4)::text AS geojson, outline_svg FROM pla
 -- A place's children drawn in one frame, for the place map (P1028 4.1): Web Mercator, the
 -- longer side 1000 wide, y down (ST_AsSVG turns y over), as SVG paths, each with a point
 -- well inside it for its name. x0, y1 and k place other points in the same frame. Simplified
--- together as a coverage, by about a frame's unit, so neighbours share one border.
+-- together as a coverage, by about a frame's unit, so neighbours share one border. @also are
+-- drawn among the children though they aren't theirs: a place's face puts Tashkent city into
+-- the hole Toshkent viloyati leaves for it.
 WITH raw AS (
     SELECT c.slug, ST_Transform(c.geom, 3857) AS g
     FROM places c
-    JOIN places p ON p.id = c.parent_id
-    WHERE p.slug = @slug AND c.geom_simple IS NOT NULL
+    WHERE (c.parent_id = (SELECT p.id FROM places p WHERE p.slug = @slug) OR c.slug = ANY (@also::text[]))
+      AND c.geom_simple IS NOT NULL
 ), unit AS (
     SELECT greatest(ST_XMax(e) - ST_XMin(e), ST_YMax(e) - ST_YMin(e)) / 1000 AS u
     FROM (SELECT ST_Extent(g) AS e FROM raw) x
@@ -104,7 +106,8 @@ WITH raw AS (
     SELECT x0, y1, w, h, 1000 / greatest(w, h) AS k FROM box
 )
 SELECT kids.slug,
-       ST_AsSVG(ST_Scale(ST_Translate(kids.g, -f.x0, -f.y1), f.k, f.k), 0, 1)::text AS d,
+       -- outer rings one way round, holes the other: a hole stays a hole under any fill rule
+       ST_AsSVG(ST_ForcePolygonCW(ST_Scale(ST_Translate(kids.g, -f.x0, -f.y1), f.k, f.k)), 0, 1)::text AS d,
        ((ST_X(m.c) - f.x0) * f.k)::float8 AS lx,
        ((f.y1 - ST_Y(m.c)) * f.k)::float8 AS ly,
        (f.w * f.k)::float8 AS width, (f.h * f.k)::float8 AS height,
@@ -113,6 +116,18 @@ FROM kids
 CROSS JOIN f
 CROSS JOIN LATERAL (SELECT (ST_MaximumInscribedCircle(kids.g)).center AS c) m
 ORDER BY kids.slug;
+
+-- name: SurroundingPlace :one
+-- The place beside this one (the same parent) whose outer edge holds it, its own area having a
+-- hole there: Toshkent viloyati round Tashkent city.
+SELECT o.slug
+FROM places p
+JOIN places o ON o.parent_id = p.parent_id AND o.id <> p.id
+WHERE p.slug = @slug
+  AND EXISTS (SELECT 1 FROM ST_Dump(o.geom) d
+              WHERE ST_Contains(ST_MakePolygon(ST_ExteriorRing(d.geom)), ST_PointOnSurface(p.geom)))
+ORDER BY o.size_km
+LIMIT 1;
 
 -- name: PlacePoints :many
 -- A point well inside each named place, in Web Mercator: marks on a place map.
@@ -127,8 +142,7 @@ FROM (
 -- name: ListPlaces :many
 -- The whole place tree, for the place picker.
 SELECT id, coalesce(parent_id, 0)::bigint AS parent_id, kind, slug, name_uz, name_ru, name_en,
-       size_km, outline_svg, coalesce(banner_url, '')::text AS banner_url,
-       coalesce(banner_credit, '')::text AS banner_credit
+       size_km, outline_svg
 FROM places
 ORDER BY id;
 

@@ -126,9 +126,9 @@ func TestYandexRoundIsScoredAgainstWhatTheViewerOpened(t *testing.T) {
 	if res.Place.District == nil || res.Place.City == nil {
 		t.Fatalf("no place info: %+v", res.Place)
 	}
-	// the place's picture: the smallest place, and the place it is a part of
-	if res.Place.Slug == "" || res.Place.Parent == "" || res.Place.Slug == res.Place.Parent {
-		t.Fatalf("no place and parent for the picture: %+v", res.Place)
+	// the place's face: the smallest place
+	if res.Place.Slug != "west" && res.Place.Slug != "east" {
+		t.Fatalf("no place for the picture: %+v", res.Place)
 	}
 }
 
@@ -534,6 +534,56 @@ func TestMyStreets(t *testing.T) {
 	if inPlace != 2 {
 		t.Fatalf("the districts hold %d rounds, want 2", inPlace)
 	}
+
+	// a street belongs to its city, but a row names the district the player met it in
+	if _, err := f.pool.Exec(ctx, `UPDATE streets SET place_id = (SELECT id FROM places WHERE slug = 'toshkent')`); err != nil {
+		t.Fatal(err)
+	}
+	district := map[string]string{"G‘arb ko‘chasi": "west", "Sharq ko‘chasi": "east"}
+	rows, err = q.MyStreets(ctx, store.MyStreetsParams{UserID: f.user})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range rows {
+		if r.PlaceSlug != district[r.NameUz] {
+			t.Fatalf("%s is shown in %q, want %q", r.NameUz, r.PlaceSlug, district[r.NameUz])
+		}
+	}
+
+	// the wallet: a street's entry wears the same district, with a round there or without one
+	// (another player's entry: no round of theirs), a district's its own, the rest none
+	streetID := rows[0].ID
+	for _, e := range []struct {
+		user        uuid.UUID
+		reason, ref string
+	}{
+		{f.user, "street", fmt.Sprint(streetID)}, {f.other, "street", fmt.Sprint(streetID)},
+		{f.user, "district", "east"}, {f.user, "challenge", "abc123"}, {f.user, "buy", "frame-zar"},
+	} {
+		if _, err := f.pool.Exec(ctx, `INSERT INTO barg_ledger (user_id, amount, reason, ref, key) VALUES ($1, 5, $2, $3, $4)`,
+			e.user, e.reason, e.ref, fmt.Sprint(e.reason, e.ref, e.user)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	faces := map[string]string{}
+	for _, u := range []uuid.UUID{f.user, f.other} {
+		hist, err := q.BargHistory(ctx, u)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, h := range hist {
+			faces[fmt.Sprintf("%v %s", u == f.other, h.Reason)] = h.PlaceSlug
+		}
+	}
+	want := map[string]string{
+		"false street": rows[0].PlaceSlug, "true street": rows[0].PlaceSlug,
+		"false district": "east", "false challenge": "", "false buy": "",
+	}
+	for k, v := range want {
+		if faces[k] != v {
+			t.Fatalf("wallet %s: place %q, want %q", k, faces[k], v)
+		}
+	}
 }
 
 func TestCrowdIsOtherPlayersOnTheSamePanorama(t *testing.T) {
@@ -605,7 +655,7 @@ func TestCrowdIsOtherPlayersOnTheSamePanorama(t *testing.T) {
 
 func TestPlaceMapNeighboursShareOneBorder(t *testing.T) {
 	f := setup(t)
-	rows, err := store.New(f.pool).PlaceMapShapes(context.Background(), "toshkent")
+	rows, err := store.New(f.pool).PlaceMapShapes(context.Background(), store.PlaceMapShapesParams{Slug: "toshkent", Also: []string{}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -628,6 +678,116 @@ func TestPlaceMapNeighboursShareOneBorder(t *testing.T) {
 	}
 	if shared < 2 {
 		t.Fatalf("the border isn't the same line: %q and %q", rows[0].D, rows[1].D)
+	}
+}
+
+// The fixture's city gets a region round it, with a hole where the city is (as Toshkent
+// viloyati round Tashkent), cut into two districts, and the region another one far away.
+func withRegions(t *testing.T, f *fixture) *places.Tree {
+	t.Helper()
+	ctx := context.Background()
+	for _, sql := range []string{
+		`INSERT INTO places (kind, slug, name_uz, geom, geom_simple, size_km)
+		 SELECT 'region', 'around', 'Atrof viloyati', g, g, 80
+		 FROM (SELECT ST_Multi(ST_Difference(ST_MakeEnvelope(68.9, 41.0, 69.5, 41.6, 4326), ST_MakeEnvelope(69.1, 41.2, 69.3, 41.4, 4326))) AS g) x`,
+		`INSERT INTO places (kind, slug, name_uz, geom, geom_simple, size_km)
+		 SELECT 'district', d.slug, d.slug, g, g, 40
+		 FROM places r, LATERAL (VALUES ('north-d', ST_MakeEnvelope(68.9, 41.3, 69.5, 41.6, 4326)),
+		                                ('south-d', ST_MakeEnvelope(68.9, 41.0, 69.5, 41.3, 4326))) d(slug, box),
+		      LATERAL (SELECT ST_Multi(ST_Intersection(r.geom, d.box)) AS g) x
+		 WHERE r.slug = 'around'`,
+		`INSERT INTO places (kind, slug, name_uz, geom, geom_simple, size_km) VALUES
+		 ('region', 'far', 'Uzoq viloyati', ST_Multi(ST_MakeEnvelope(60, 40, 61, 41, 4326)), ST_Multi(ST_MakeEnvelope(60, 40, 61, 41, 4326)), 140)`,
+		`UPDATE places SET parent_id = (SELECT id FROM places WHERE slug = 'uzbekistan') WHERE slug IN ('around', 'far')`,
+		`UPDATE places SET parent_id = (SELECT id FROM places WHERE slug = 'around') WHERE slug IN ('north-d', 'south-d')`,
+	} {
+		if _, err := f.pool.Exec(ctx, sql); err != nil {
+			t.Fatalf("%s: %v", sql, err)
+		}
+	}
+	tree, err := places.LoadTree(ctx, store.New(f.pool), []string{"yandex"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return tree
+}
+
+func TestAPlaceFaceIsThePlaceInItsParent(t *testing.T) {
+	f := setup(t)
+	tree := withRegions(t, f)
+	q := store.New(f.pool)
+	ctx := context.Background()
+	slugs := func(face *places.Face) string {
+		var out []string
+		for _, s := range face.Shapes {
+			out = append(out, s.Slug)
+		}
+		return fmt.Sprint(out)
+	}
+	for _, c := range []struct {
+		place, frame, shapes string
+		whole                bool
+	}{
+		{"west", "toshkent", "[east west]", false},                  // a district in its city
+		{"north-d", "around", "[north-d south-d]", false},           // a district in its region
+		{"toshkent", "around", "[north-d south-d toshkent]", false}, // the city in the hole of its region
+		{"around", "uzbekistan", "[around far toshkent]", false},    // a region in the country
+		{"uzbekistan", "uzbekistan", "[around far toshkent]", true},
+	} {
+		face, err := places.FaceOf(ctx, q, tree, c.place)
+		if err != nil {
+			t.Fatalf("%s: %v", c.place, err)
+		}
+		if face.Frame.Slug != c.frame || slugs(face) != c.shapes || face.Whole != c.whole {
+			t.Errorf("%s: frame %s, shapes %s, whole %v; want %s, %s, %v",
+				c.place, face.Frame.Slug, slugs(face), face.Whole, c.frame, c.shapes, c.whole)
+		}
+		for _, s := range face.Shapes {
+			if s.D == "" || s.Width <= 0 || s.Height <= 0 || max(s.Width, s.Height) < 999 {
+				t.Errorf("%s: %s drawn as %q in %.0f×%.0f", c.place, s.Slug, s.D, s.Width, s.Height)
+			}
+		}
+	}
+	if _, err := places.FaceOf(ctx, q, tree, "atlantis"); !errors.Is(err, places.ErrNoPlace) {
+		t.Fatalf("an unknown place: %v", err)
+	}
+}
+
+func TestAMapsFaceHoldsAllItsPlaces(t *testing.T) {
+	f := setup(t)
+	withRegions(t, f)
+	ctx := context.Background()
+	for _, sql := range []string{
+		`INSERT INTO maps (slug, name_uz, rules, pick) VALUES ('two', 'Ikki', '{}', '{"group":"district"}'),
+		 ('spread', 'Yoyiq', '{}', '{"group":"district"}'), ('framed', 'Ramkali', '{}', '{"group":"street","frame":"two"}'),
+		 ('empty', 'Bo‘sh', '{}', '{"group":"none"}')`,
+		`INSERT INTO map_sources (map_id, place_id) SELECT m.id, p.id FROM maps m, places p
+		 WHERE (m.slug = 'two' AND p.slug IN ('west', 'east')) OR (m.slug = 'spread' AND p.slug IN ('west', 'far'))
+		    OR (m.slug = 'framed' AND p.slug = 'west')`,
+	} {
+		if _, err := f.pool.Exec(ctx, sql); err != nil {
+			t.Fatalf("%s: %v", sql, err)
+		}
+	}
+	want := map[string]string{"city": "toshkent", "two": "toshkent", "spread": "uzbekistan", "framed": "toshkent", "empty": ""}
+	slugs := []string{"city", "two", "spread", "framed", "empty", "nowhere"}
+	for range 2 { // the second time from memory
+		faces, err := f.svc.Catalog.Faces(ctx, slugs)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for slug, face := range want {
+			if faces[slug] != face {
+				t.Errorf("map %s: face %q, want %q", slug, faces[slug], face)
+			}
+		}
+	}
+	m, err := f.svc.Catalog.Get(ctx, "framed")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.Face != "toshkent" {
+		t.Fatalf("a framed map's face is its frame's: %q", m.Face)
 	}
 }
 

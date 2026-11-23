@@ -135,21 +135,19 @@ type Panorama struct {
 }
 
 type Place struct {
-	ID           int64
-	ParentID     *int64
-	Kind         string
-	Slug         string
-	NameUz       string
-	NameRu       string
-	NameEn       string
-	OsmID        *int64
-	Geom         interface{}
-	GeomSimple   interface{}
-	SizeKm       float64
-	OutlineSvg   string
-	BannerUrl    *string
-	BannerCredit *string
-	CreatedAt    time.Time
+	ID         int64
+	ParentID   *int64
+	Kind       string
+	Slug       string
+	NameUz     string
+	NameRu     string
+	NameEn     string
+	OsmID      *int64
+	Geom       interface{}
+	GeomSimple interface{}
+	SizeKm     float64
+	OutlineSvg string
+	CreatedAt  time.Time
 }
 
 type Poi struct {

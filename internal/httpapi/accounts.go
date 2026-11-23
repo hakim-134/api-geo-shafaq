@@ -318,7 +318,8 @@ func (s *Server) ListMyStreets(w http.ResponseWriter, r *http.Request, params oa
 		place := text(places.NewText(row.PlaceUz, row.PlaceRu, row.PlaceEn))
 		out.Streets[i] = oapi.MyStreet{
 			Name:    text(places.NewText(row.NameUz, row.NameRu, "")),
-			Place:   &place,
+			Place:   place,
+			Face:    row.PlaceSlug,
 			Rounds:  int(row.Rounds),
 			Learned: row.BestKm >= 0 && row.BestKm <= places.LearnedKm,
 		}
@@ -449,6 +450,14 @@ func (s *Server) profileOut(ctx context.Context, u store.User) (oapi.Profile, er
 	if err != nil {
 		return oapi.Profile{}, err
 	}
+	named := listMaps(recent)
+	for _, b := range bests {
+		named = append(named, b.Slug)
+	}
+	faces, err := s.catalog.Faces(ctx, named)
+	if err != nil {
+		return oapi.Profile{}, err
+	}
 	p := oapi.Profile{
 		User: publicUser(u),
 		Stats: oapi.ProfileStats{
@@ -463,13 +472,13 @@ func (s *Server) profileOut(ctx context.Context, u store.User) (oapi.Profile, er
 	}
 	for i, b := range bests {
 		p.Maps[i] = oapi.MapBest{
-			Map:   oapi.MapRef{Slug: b.Slug, Name: text(places.NewText(b.NameUz, b.NameRu, b.NameEn))},
+			Map:   mapRef(b.Slug, places.NewText(b.NameUz, b.NameRu, b.NameEn), faces),
 			Games: int(b.Games), Best: int(b.Total), Rounds: int(b.Rounds), GameId: b.GameID,
 		}
 	}
 	for i, it := range recent {
 		p.Recent[i] = oapi.GameListItem{
-			Id: it.ID, Map: oapi.MapRef{Slug: it.MapSlug, Name: text(it.MapName)}, Status: oapi.GameStatus(it.Status),
+			Id: it.ID, Map: mapRef(it.MapSlug, it.MapName, faces), Status: oapi.GameStatus(it.Status),
 			StartedAt: it.StartedAt, FinishedAt: it.FinishedAt, Total: it.Total, Max: it.Rounds * 5000, Rounds: it.Rounds,
 		}
 		if it.Hints > 0 {

@@ -34,8 +34,6 @@ type Place struct {
 	Name         Text
 	SizeKm       float64
 	Outline      string
-	Banner       string
-	BannerCredit string
 	Panoramas    int // active, on the players' providers
 	Streets      int // named streets with such a panorama
 	Parent       *Place
@@ -91,6 +89,32 @@ type Tree struct {
 func (t *Tree) Get(slug string) *Place { return t.bySlug[slug] }
 func (t *Tree) ByID(id int64) *Place   { return t.byID[id] }
 
+// Around is the smallest place holding all the given ones (one place: itself); nil for none.
+func (t *Tree) Around(ids []int64) *Place {
+	var out []*Place // the common path so far, the country first
+	first := true
+	for _, id := range ids {
+		p := t.byID[id]
+		if p == nil {
+			continue
+		}
+		path := append(p.Path(), p)
+		if first {
+			out, first = path, false
+			continue
+		}
+		n := 0
+		for n < len(out) && n < len(path) && out[n] == path[n] {
+			n++
+		}
+		out = out[:n]
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out[len(out)-1]
+}
+
 // LoadTree reads the places and counts their panoramas on the given providers.
 func LoadTree(ctx context.Context, q *store.Queries, providers []string) (*Tree, error) {
 	rows, err := q.ListPlaces(ctx)
@@ -106,7 +130,6 @@ func LoadTree(ctx context.Context, q *store.Queries, providers []string) (*Tree,
 		p := &Place{
 			ID: r.ID, ParentID: r.ParentID, Kind: r.Kind, Slug: r.Slug,
 			Name: NewText(r.NameUz, r.NameRu, r.NameEn), SizeKm: r.SizeKm, Outline: r.OutlineSvg,
-			Banner: r.BannerUrl, BannerCredit: r.BannerCredit,
 		}
 		t.bySlug[p.Slug], t.byID[p.ID] = p, p
 	}

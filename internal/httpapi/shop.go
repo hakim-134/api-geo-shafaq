@@ -11,6 +11,7 @@ import (
 
 	"github.com/hakim-134/api-geo-shafaq/internal/barg"
 	"github.com/hakim-134/api-geo-shafaq/internal/httpapi/oapi"
+	"github.com/hakim-134/api-geo-shafaq/internal/places"
 	"github.com/hakim-134/api-geo-shafaq/internal/players"
 	"github.com/hakim-134/api-geo-shafaq/internal/store"
 )
@@ -51,6 +52,10 @@ func (s *Server) GetWallet(w http.ResponseWriter, r *http.Request) {
 		if row.Note != "" {
 			note := row.Note
 			out.Entries[i].Note = &note
+		}
+		if row.PlaceSlug != "" {
+			place := text(places.NewText(row.PlaceUz, row.PlaceRu, row.PlaceEn))
+			out.Entries[i].Face, out.Entries[i].Place = &row.PlaceSlug, &place
 		}
 	}
 	writeJSON(w, http.StatusOK, out)

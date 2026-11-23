@@ -7,6 +7,7 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -17,6 +18,7 @@ import (
 	"github.com/hakim-134/api-geo-shafaq/internal/maps"
 	"github.com/hakim-134/api-geo-shafaq/internal/places"
 	"github.com/hakim-134/api-geo-shafaq/internal/provider"
+	"github.com/hakim-134/api-geo-shafaq/internal/store"
 )
 
 // ---------- system ----------
@@ -113,11 +115,16 @@ func (s *Server) ListMyGames(w http.ResponseWriter, r *http.Request, params oapi
 		fail(w, r, err)
 		return
 	}
+	faces, err := s.catalog.Faces(r.Context(), listMaps(items))
+	if err != nil {
+		fail(w, r, err)
+		return
+	}
 	n := int(total)
 	page := oapi.GamePage{Games: make([]oapi.GameListItem, 0, len(items)), Total: &n}
 	for _, it := range items {
 		page.Games = append(page.Games, oapi.GameListItem{
-			Id: it.ID, Map: oapi.MapRef{Slug: it.MapSlug, Name: text(it.MapName)}, Status: oapi.GameStatus(it.Status),
+			Id: it.ID, Map: mapRef(it.MapSlug, it.MapName, faces), Status: oapi.GameStatus(it.Status),
 			StartedAt: it.StartedAt, FinishedAt: it.FinishedAt, Total: it.Total, Max: it.Rounds * 5000, Rounds: it.Rounds,
 		})
 		if it.Players > 0 {
@@ -224,16 +231,76 @@ func (s *Server) GetPlaceShape(w http.ResponseWriter, r *http.Request, slug stri
 		fail(w, r, err)
 		return
 	}
-	w.Header().Set("Cache-Control", "public, max-age=3600")
 	b, _ := json.Marshal(oapi.PlaceShape{Slug: p.Slug, Geometry: geometry, Outline: p.OutlineSvg})
-	w.Header().Set("Content-Type", "application/json")
-	_, _ = w.Write(b)
+	writeCached(w, b, 3600)
+}
+
+// GetPlaceFace is a place's face. The same for everyone, and the places don't change while
+// the server runs: each is drawn once, then served from memory and kept by the browser a day.
+func (s *Server) GetPlaceFace(w http.ResponseWriter, r *http.Request, slug string) {
+	if b, ok := s.faces.get(slug); ok {
+		writeCached(w, b, 86400)
+		return
+	}
+	t, err := s.places.Get(r.Context())
+	if err != nil {
+		fail(w, r, err)
+		return
+	}
+	f, err := places.FaceOf(r.Context(), s.q, t, slug)
+	if errors.Is(err, places.ErrNoPlace) {
+		writeError(w, http.StatusNotFound, "not_found")
+		return
+	}
+	if err != nil {
+		fail(w, r, err)
+		return
+	}
+	b, err := json.Marshal(placeFace(f))
+	if err != nil {
+		fail(w, r, err)
+		return
+	}
+	s.faces.put(slug, b)
+	writeCached(w, b, 86400)
+}
+
+// faceCache keeps every place's face as sent, by slug. Only places that exist get in, so it
+// holds at most one answer per place.
+type faceCache struct {
+	mu sync.Mutex
+	m  map[string][]byte
+}
+
+func (c *faceCache) get(slug string) ([]byte, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	b, ok := c.m[slug]
+	return b, ok
+}
+
+func (c *faceCache) put(slug string, b []byte) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.m == nil {
+		c.m = map[string][]byte{}
+	}
+	c.m[slug] = b
+}
+
+// listMaps: the maps a list of games is on, for their faces.
+func listMaps(items []game.ListItem) []string {
+	out := make([]string, 0, len(items))
+	for _, it := range items {
+		out = append(out, it.MapSlug)
+	}
+	return out
 }
 
 // GetPlaceMap draws a place's children for the place map; the same for everyone, so it
 // caches like the shapes.
 func (s *Server) GetPlaceMap(w http.ResponseWriter, r *http.Request, slug string, params oapi.GetPlaceMapParams) {
-	rows, err := s.q.PlaceMapShapes(r.Context(), slug)
+	rows, err := s.q.PlaceMapShapes(r.Context(), store.PlaceMapShapesParams{Slug: slug, Also: []string{}})
 	if err != nil {
 		fail(w, r, err)
 		return
@@ -265,8 +332,12 @@ func (s *Server) GetPlaceMap(w http.ResponseWriter, r *http.Request, slug string
 				X: (p.X - f.X0) * f.K, Y: (f.Y1 - p.Y) * f.K})
 		}
 	}
-	w.Header().Set("Cache-Control", "public, max-age=3600")
-	writeJSON(w, http.StatusOK, out)
+	b, err := json.Marshal(out)
+	if err != nil {
+		fail(w, r, err)
+		return
+	}
+	writeCached(w, b, 3600)
 }
 
 // placeView: the place tree, and with progress the player's rounds (none without a session).

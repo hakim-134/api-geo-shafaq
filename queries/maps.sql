@@ -75,6 +75,15 @@ FROM map_sources s JOIN places pl ON pl.id = s.place_id
 WHERE s.map_id = @map_id
 ORDER BY pl.size_km DESC;
 
+-- name: MapFaceSources :many
+-- What each map's face is made from: its places, and the map whose box it plays on (frame).
+SELECT m.slug, coalesce(m.pick->>'frame', '')::text AS frame,
+       coalesce(array_agg(s.place_id) FILTER (WHERE s.place_id IS NOT NULL), '{}')::bigint[] AS place_ids
+FROM maps m
+LEFT JOIN map_sources s ON s.map_id = m.id
+WHERE m.slug = ANY (@slugs::text[])
+GROUP BY m.id;
+
 -- ---------- streets I miss ----------
 
 -- name: UpsertMissMap :one

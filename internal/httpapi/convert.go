@@ -56,20 +56,37 @@ func placeRef(p *places.Place) *oapi.PlaceRef {
 	return &oapi.PlaceRef{Slug: p.Slug, Kind: oapi.PlaceRefKind(p.Kind), Name: text(p.Name), Map: maps.PlaceMap(p.Slug)}
 }
 
+// mapRef names a map, with its face (faces: Catalog.Faces of the list's maps).
+func mapRef(slug string, name places.Text, faces map[string]string) oapi.MapRef {
+	return oapi.MapRef{Slug: slug, Name: text(name), Face: strPtr(faces[slug])}
+}
+
+// placeFace is a place's face in the contract's terms.
+func placeFace(f *places.Face) oapi.PlaceFace {
+	out := oapi.PlaceFace{
+		Slug: f.Place.Slug, Kind: oapi.PlaceFaceKind(f.Place.Kind), Name: text(f.Place.Name),
+		Frame: *placeRef(f.Frame), Whole: f.Whole, Shapes: make([]oapi.PlaceMapShape, 0, len(f.Shapes)),
+	}
+	if len(f.Shapes) > 0 {
+		out.Width, out.Height = f.Shapes[0].Width, f.Shapes[0].Height
+	}
+	for _, row := range f.Shapes {
+		out.Shapes = append(out.Shapes, oapi.PlaceMapShape{Slug: row.Slug, D: row.D,
+			Label: oapi.PlaceMapPoint{Slug: row.Slug, X: row.Lx, Y: row.Ly}})
+	}
+	return out
+}
+
 func progressOut(p places.Progress) oapi.Progress {
 	return oapi.Progress{Unit: oapi.ProgressUnit(p.Unit), Total: p.Total, Seen: p.Seen, Learned: p.Learned}
 }
 
 func placeCard(p *places.Place, pv placeView) oapi.PlaceCard {
-	out := oapi.PlaceCard{
+	return oapi.PlaceCard{
 		Slug: p.Slug, Kind: oapi.PlaceCardKind(p.Kind), Name: text(p.Name), Map: maps.PlaceMap(p.Slug),
 		Outline: p.Outline, Panoramas: p.Panoramas, Places: len(p.Playable()),
 		Progress: progressOut(p.Progress(pv.rounds)),
 	}
-	if p.Banner != "" {
-		out.Banner, out.BannerCredit = &p.Banner, &p.BannerCredit
-	}
-	return out
 }
 
 // mapSummary counts only the players' providers (allowed), never test ones.
@@ -84,6 +101,7 @@ func mapSummary(m *maps.Map, allowed map[string]bool, reg *provider.Registry, pv
 	if m.Outline != "" {
 		out.Outline = &m.Outline
 	}
+	out.Face = strPtr(m.Face)
 	if m.Pick.StreetsOnly {
 		out.Groups = shown.Streets
 	}
@@ -249,7 +267,7 @@ func resultOut(r *game.Result) oapi.RoundResult {
 	if r.Place.Metro != nil {
 		out.Place.Metro = &oapi.Metro{Name: text(r.Place.Metro.Name), Km: r.Place.Metro.Km}
 	}
-	out.Place.Slug, out.Place.Parent = strPtr(r.Place.Slug), strPtr(r.Place.Parent)
+	out.Place.Slug = strPtr(r.Place.Slug)
 	if r.Crowd != nil {
 		out.Crowd = &struct {
 			Km float64 `json:"km"`

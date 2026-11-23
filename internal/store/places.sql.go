@@ -74,24 +74,21 @@ func (q *Queries) LinkPlaceParents(ctx context.Context) error {
 
 const listPlaces = `-- name: ListPlaces :many
 SELECT id, coalesce(parent_id, 0)::bigint AS parent_id, kind, slug, name_uz, name_ru, name_en,
-       size_km, outline_svg, coalesce(banner_url, '')::text AS banner_url,
-       coalesce(banner_credit, '')::text AS banner_credit
+       size_km, outline_svg
 FROM places
 ORDER BY id
 `
 
 type ListPlacesRow struct {
-	ID           int64
-	ParentID     int64
-	Kind         string
-	Slug         string
-	NameUz       string
-	NameRu       string
-	NameEn       string
-	SizeKm       float64
-	OutlineSvg   string
-	BannerUrl    string
-	BannerCredit string
+	ID         int64
+	ParentID   int64
+	Kind       string
+	Slug       string
+	NameUz     string
+	NameRu     string
+	NameEn     string
+	SizeKm     float64
+	OutlineSvg string
 }
 
 // The whole place tree, for the place picker.
@@ -114,8 +111,6 @@ func (q *Queries) ListPlaces(ctx context.Context) ([]ListPlacesRow, error) {
 			&i.NameEn,
 			&i.SizeKm,
 			&i.OutlineSvg,
-			&i.BannerUrl,
-			&i.BannerCredit,
 		); err != nil {
 			return nil, err
 		}
@@ -280,8 +275,8 @@ const placeMapShapes = `-- name: PlaceMapShapes :many
 WITH raw AS (
     SELECT c.slug, ST_Transform(c.geom, 3857) AS g
     FROM places c
-    JOIN places p ON p.id = c.parent_id
-    WHERE p.slug = $1 AND c.geom_simple IS NOT NULL
+    WHERE (c.parent_id = (SELECT p.id FROM places p WHERE p.slug = $1) OR c.slug = ANY ($2::text[]))
+      AND c.geom_simple IS NOT NULL
 ), unit AS (
     SELECT greatest(ST_XMax(e) - ST_XMin(e), ST_YMax(e) - ST_YMin(e)) / 1000 AS u
     FROM (SELECT ST_Extent(g) AS e FROM raw) x
@@ -295,7 +290,8 @@ WITH raw AS (
     SELECT x0, y1, w, h, 1000 / greatest(w, h) AS k FROM box
 )
 SELECT kids.slug,
-       ST_AsSVG(ST_Scale(ST_Translate(kids.g, -f.x0, -f.y1), f.k, f.k), 0, 1)::text AS d,
+       -- outer rings one way round, holes the other: a hole stays a hole under any fill rule
+       ST_AsSVG(ST_ForcePolygonCW(ST_Scale(ST_Translate(kids.g, -f.x0, -f.y1), f.k, f.k)), 0, 1)::text AS d,
        ((ST_X(m.c) - f.x0) * f.k)::float8 AS lx,
        ((f.y1 - ST_Y(m.c)) * f.k)::float8 AS ly,
        (f.w * f.k)::float8 AS width, (f.h * f.k)::float8 AS height,
@@ -305,6 +301,11 @@ CROSS JOIN f
 CROSS JOIN LATERAL (SELECT (ST_MaximumInscribedCircle(kids.g)).center AS c) m
 ORDER BY kids.slug
 `
+
+type PlaceMapShapesParams struct {
+	Slug string
+	Also []string
+}
 
 type PlaceMapShapesRow struct {
 	Slug   string
@@ -321,9 +322,11 @@ type PlaceMapShapesRow struct {
 // A place's children drawn in one frame, for the place map (P1028 4.1): Web Mercator, the
 // longer side 1000 wide, y down (ST_AsSVG turns y over), as SVG paths, each with a point
 // well inside it for its name. x0, y1 and k place other points in the same frame. Simplified
-// together as a coverage, by about a frame's unit, so neighbours share one border.
-func (q *Queries) PlaceMapShapes(ctx context.Context, slug string) ([]PlaceMapShapesRow, error) {
-	rows, err := q.db.Query(ctx, placeMapShapes, slug)
+// together as a coverage, by about a frame's unit, so neighbours share one border. @also are
+// drawn among the children though they aren't theirs: a place's face puts Tashkent city into
+// the hole Toshkent viloyati leaves for it.
+func (q *Queries) PlaceMapShapes(ctx context.Context, arg PlaceMapShapesParams) ([]PlaceMapShapesRow, error) {
+	rows, err := q.db.Query(ctx, placeMapShapes, arg.Slug, arg.Also)
 	if err != nil {
 		return nil, err
 	}
@@ -482,6 +485,26 @@ type SetPlaceOutlineParams struct {
 func (q *Queries) SetPlaceOutline(ctx context.Context, arg SetPlaceOutlineParams) error {
 	_, err := q.db.Exec(ctx, setPlaceOutline, arg.OutlineSvg, arg.ID)
 	return err
+}
+
+const surroundingPlace = `-- name: SurroundingPlace :one
+SELECT o.slug
+FROM places p
+JOIN places o ON o.parent_id = p.parent_id AND o.id <> p.id
+WHERE p.slug = $1
+  AND EXISTS (SELECT 1 FROM ST_Dump(o.geom) d
+              WHERE ST_Contains(ST_MakePolygon(ST_ExteriorRing(d.geom)), ST_PointOnSurface(p.geom)))
+ORDER BY o.size_km
+LIMIT 1
+`
+
+// The place beside this one (the same parent) whose outer edge holds it, its own area having a
+// hole there: Toshkent viloyati round Tashkent city.
+func (q *Queries) SurroundingPlace(ctx context.Context, slug string) (string, error) {
+	row := q.db.QueryRow(ctx, surroundingPlace, slug)
+	var slug_2 string
+	err := row.Scan(&slug_2)
+	return slug_2, err
 }
 
 const upsertMetro = `-- name: UpsertMetro :exec

@@ -58,9 +58,39 @@ func (q *Queries) BargEarnedSince(ctx context.Context, arg BargEarnedSinceParams
 }
 
 const bargHistory = `-- name: BargHistory :many
-SELECT amount, reason, ref, note, created_at
-FROM barg_ledger WHERE user_id = $1
-ORDER BY id DESC LIMIT 100
+WITH near AS MATERIALIZED (
+    -- the panorama places of the player's closest round on every street they have been on: one
+    -- pass over their rounds, however many entries ask
+    SELECT DISTINCT ON (p.street_id) p.street_id, p.place_ids
+    FROM guesses g
+    JOIN rounds r ON r.game_id = g.game_id AND r.n = g.n
+    JOIN panoramas p ON p.id = r.panorama_id
+    WHERE g.user_id = $1 AND g.guessed_at IS NOT NULL AND p.street_id IS NOT NULL
+    ORDER BY p.street_id, g.km NULLS LAST, g.game_id, g.n
+)
+SELECT l.amount, l.reason, l.ref, l.note, l.created_at,
+       coalesce(d.slug, '')::text AS place_slug, coalesce(d.name_uz, '')::text AS place_uz,
+       coalesce(d.name_ru, '')::text AS place_ru, coalesce(d.name_en, '')::text AS place_en
+FROM (SELECT id, user_id, amount, reason, ref, note, key, created_at FROM barg_ledger b WHERE b.user_id = $1 ORDER BY b.id DESC LIMIT 100) l
+LEFT JOIN LATERAL (
+    SELECT x.slug, x.name_uz, x.name_ru, x.name_en
+    FROM places x
+    WHERE l.reason = 'district' AND x.slug = l.ref
+    UNION ALL
+    (SELECT x.slug, x.name_uz, x.name_ru, x.name_en
+     FROM streets s
+     JOIN places x ON x.id = ANY (coalesce(
+         (SELECT n.place_ids FROM near n WHERE n.street_id = s.id),
+         (SELECT a.place_ids FROM panoramas a
+          WHERE a.street_id = s.id AND a.place_ids <> '{}'
+          GROUP BY a.place_ids ORDER BY count(*) DESC LIMIT 1)
+     ) || s.place_id)
+     -- a street's ref is its id; the CASE keeps the cast off every other entry's ref
+     WHERE s.id = CASE WHEN l.reason = 'street' THEN l.ref::bigint END
+     ORDER BY x.kind IN ('district', 'city') DESC, x.size_km
+     LIMIT 1)
+) d ON true
+ORDER BY l.id DESC
 `
 
 type BargHistoryRow struct {
@@ -69,8 +99,15 @@ type BargHistoryRow struct {
 	Ref       string
 	Note      string
 	CreatedAt time.Time
+	PlaceSlug string
+	PlaceUz   string
+	PlaceRu   string
+	PlaceEn   string
 }
 
+// The newest hundred entries, each with its place: a district's own; a street's district, the
+// one the player met it in as in their streets (their closest round there), or, with no round of
+// theirs left there, the one holding most of the street's panoramas.
 func (q *Queries) BargHistory(ctx context.Context, userID uuid.UUID) ([]BargHistoryRow, error) {
 	rows, err := q.db.Query(ctx, bargHistory, userID)
 	if err != nil {
@@ -86,6 +123,10 @@ func (q *Queries) BargHistory(ctx context.Context, userID uuid.UUID) ([]BargHist
 			&i.Ref,
 			&i.Note,
 			&i.CreatedAt,
+			&i.PlaceSlug,
+			&i.PlaceUz,
+			&i.PlaceRu,
+			&i.PlaceEn,
 		); err != nil {
 			return nil, err
 		}

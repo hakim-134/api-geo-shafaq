@@ -1,15 +1,17 @@
 package httpapi
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"html/template"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/hakim-134/api-geo-shafaq/internal/card"
 	"github.com/hakim-134/api-geo-shafaq/internal/game"
 	"github.com/hakim-134/api-geo-shafaq/internal/httpapi/oapi"
+	"github.com/hakim-134/api-geo-shafaq/internal/places"
 )
 
 // boardTop is how many of a challenge's leaderboard a page gets; the caller's own row comes too.
@@ -163,11 +165,14 @@ func (s *Server) GetChallengeCardImage(w http.ResponseWriter, r *http.Request, c
 	for _, sc := range scores {
 		total += sc
 	}
+	face, err := s.cardFace(r.Context(), ch.Map.Face)
+	if err != nil {
+		fail(w, r, err)
+		return
+	}
 	img, err := card.Draw(card.Data{
-		Name:   ch.By.Name,
-		Sign:   card.Sign{Kind: signKind(ch.Map.Slug), Top: ch.Map.Desc.Uz, Name: ch.Map.Name.Uz},
-		Total:  total,
-		Scores: scores,
+		Name: ch.By.Name, Kind: ch.Map.Desc.Uz, Map: ch.Map.Name.Uz, Face: face,
+		Total: total, Scores: scores,
 	})
 	if err != nil {
 		fail(w, r, err)
@@ -178,15 +183,25 @@ func (s *Server) GetChallengeCardImage(w http.ResponseWriter, r *http.Request, c
 	_, _ = w.Write(img)
 }
 
-// signKind is the map's road sign, as the game's src/lib/maps/sign.ts.
-func signKind(slug string) string {
-	switch {
-	case slug == "historic":
-		return "brown"
-	case slug == "uzbekistan":
-		return "green"
-	case slug == "tashkent", strings.HasPrefix(slug, "place-"):
-		return "white"
+// cardFace is the map's face as the card draws it: the parent's parts, the place lit.
+func (s *Server) cardFace(ctx context.Context, slug string) ([]card.Shape, error) {
+	if slug == "" {
+		return nil, nil
 	}
-	return "blue"
+	t, err := s.places.Get(ctx)
+	if err != nil {
+		return nil, err
+	}
+	f, err := places.FaceOf(ctx, s.q, t, slug)
+	if errors.Is(err, places.ErrNoPlace) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	out := make([]card.Shape, len(f.Shapes))
+	for i, sh := range f.Shapes {
+		out[i] = card.Shape{D: sh.D, Lit: f.Whole || sh.Slug == f.Place.Slug}
+	}
+	return out, nil
 }

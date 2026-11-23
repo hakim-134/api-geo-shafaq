@@ -207,6 +207,30 @@ func (e PlaceCardKind) Valid() bool {
 	}
 }
 
+// Defines values for PlaceFaceKind.
+const (
+	PlaceFaceKindCity     PlaceFaceKind = "city"
+	PlaceFaceKindCountry  PlaceFaceKind = "country"
+	PlaceFaceKindDistrict PlaceFaceKind = "district"
+	PlaceFaceKindRegion   PlaceFaceKind = "region"
+)
+
+// Valid indicates whether the value is a known member of the PlaceFaceKind enum.
+func (e PlaceFaceKind) Valid() bool {
+	switch e {
+	case PlaceFaceKindCity:
+		return true
+	case PlaceFaceKindCountry:
+		return true
+	case PlaceFaceKindDistrict:
+		return true
+	case PlaceFaceKindRegion:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for PlaceRefKind.
 const (
 	PlaceRefKindCity     PlaceRefKind = "city"
@@ -699,6 +723,11 @@ type MapBest struct {
 
 // MapRef defines model for MapRef.
 type MapRef struct {
+	// Face The place whose picture stands for the map, as in `MapSummary.face`.
+	//
+	// Example: toshkent
+	Face *string `json:"face,omitempty"`
+
 	// Name A name in the three languages. `ru` and `en` fall back to `uz` (street signs are in Uzbek Latin).
 	Name Text   `json:"name"`
 	Slug string `json:"slug"`
@@ -714,6 +743,11 @@ type MapSummary struct {
 
 	// Description A name in the three languages. `ru` and `en` fall back to `uz` (street signs are in Uzbek Latin).
 	Description Text `json:"description"`
+
+	// Face The place whose picture stands for the map (`/v1/places/{slug}/face`): its one place, or the smallest place holding all of them (Uzbekistan for the historic cities); a player's streets map, the place of the map it plays on. Absent when the map has no places.
+	//
+	// Example: toshkent
+	Face *string `json:"face,omitempty"`
 
 	// Groups Streets (on a street map) or places the panoramas are grouped by.
 	Groups int `json:"groups"`
@@ -796,6 +830,9 @@ type MyStreet struct {
 	// BestKm The closest guess; none when no pin was placed.
 	BestKm *float64 `json:"bestKm,omitempty"`
 
+	// Face That district by slug, for its picture (`/v1/places/{slug}/face`).
+	Face string `json:"face"`
+
 	// Heading That round's first heading, degrees from north.
 	Heading *float64 `json:"heading,omitempty"`
 
@@ -806,7 +843,7 @@ type MyStreet struct {
 	Name Text `json:"name"`
 
 	// Place A name in the three languages. `ru` and `en` fall back to `uz` (street signs are in Uzbek Latin).
-	Place *Text `json:"place,omitempty"`
+	Place Text `json:"place"`
 
 	// Rounds Rounds played on this street.
 	Rounds int `json:"rounds"`
@@ -849,11 +886,8 @@ type PanoView struct {
 
 // PlaceCard defines model for PlaceCard.
 type PlaceCard struct {
-	// Banner A photo of the place (Wikimedia Commons).
-	Banner       *string       `json:"banner,omitempty"`
-	BannerCredit *string       `json:"bannerCredit,omitempty"`
-	Kind         PlaceCardKind `json:"kind"`
-	Map          string        `json:"map"`
+	Kind PlaceCardKind `json:"kind"`
+	Map  string        `json:"map"`
 
 	// Name A name in the three languages. `ru` and `en` fall back to `uz` (street signs are in Uzbek Latin).
 	Name Text `json:"name"`
@@ -886,6 +920,30 @@ type PlaceDetail struct {
 	Place PlaceCard  `json:"place"`
 }
 
+// PlaceFace A place's face: the parts of `frame` drawn in one frame (Web Mercator, the longer side
+// 1000, y down, as `PlaceMap`), with the place filled: the shape whose `slug` is the
+// place's, or every shape when `whole`.
+type PlaceFace struct {
+	// Frame A place, by name. On a map, the map's one place (or its parent).
+	Frame  PlaceRef      `json:"frame"`
+	Height float64       `json:"height"`
+	Kind   PlaceFaceKind `json:"kind"`
+
+	// Name A name in the three languages. `ru` and `en` fall back to `uz` (street signs are in Uzbek Latin).
+	Name   Text            `json:"name"`
+	Shapes []PlaceMapShape `json:"shapes"`
+
+	// Slug Example: jondor-tumani
+	Slug string `json:"slug"`
+
+	// Whole The place is the frame itself (Uzbekistan): every shape is it.
+	Whole bool    `json:"whole"`
+	Width float64 `json:"width"`
+}
+
+// PlaceFaceKind defines model for PlaceFace.Kind.
+type PlaceFaceKind string
+
 // PlaceInfo "You were here": what the round teaches.
 type PlaceInfo struct {
 	// City A name in the three languages. `ru` and `en` fall back to `uz` (street signs are in Uzbek Latin).
@@ -895,15 +953,10 @@ type PlaceInfo struct {
 	District *Text  `json:"district,omitempty"`
 	Metro    *Metro `json:"metro,omitempty"`
 
-	// Parent The place `slug` is a part of.
-	//
-	// Example: toshkent
-	Parent *string `json:"parent,omitempty"`
-
 	// Region A name in the three languages. `ru` and `en` fall back to `uz` (street signs are in Uzbek Latin).
 	Region *Text `json:"region,omitempty"`
 
-	// Slug The smallest place the round was in (a district, a city, a region). With `parent` it is the place's picture: `GET /v1/places/{parent}/map` draws the parent's parts, and this one is filled in. Missing in results saved before 2026-11-12.
+	// Slug The smallest place the round was in (a district, a city, a region), for its picture (`/v1/places/{slug}/face`). Missing in results saved before 2026-11-12.
 	//
 	// Example: bektemir-tumani
 	Slug *string `json:"slug,omitempty"`
@@ -1422,9 +1475,15 @@ type Wallet struct {
 
 // WalletEntry defines model for WalletEntry.
 type WalletEntry struct {
-	Amount int               `json:"amount"`
-	At     time.Time         `json:"at"`
-	Note   *string           `json:"note,omitempty"`
+	Amount int       `json:"amount"`
+	At     time.Time `json:"at"`
+
+	// Face That district by slug, for its picture (`/v1/places/{slug}/face`).
+	Face *string `json:"face,omitempty"`
+	Note *string `json:"note,omitempty"`
+
+	// Place A name in the three languages. `ru` and `en` fall back to `uz` (street signs are in Uzbek Latin).
+	Place  *Text             `json:"place,omitempty"`
 	Reason WalletEntryReason `json:"reason"`
 
 	// Ref buy, refund: the item.
@@ -1692,6 +1751,9 @@ type ServerInterface interface {
 	// GetPlace A place for the place picker, with where it is and what is inside it.
 	// (GET /v1/places/{slug})
 	GetPlace(w http.ResponseWriter, r *http.Request, slug Slug)
+	// GetPlaceFace A place's face, its picture wherever it is named (P1111 §5).
+	// (GET /v1/places/{slug}/face)
+	GetPlaceFace(w http.ResponseWriter, r *http.Request, slug Slug)
 	// GetPlaceMap A place's children drawn in one frame, for the place map.
 	// (GET /v1/places/{slug}/map)
 	GetPlaceMap(w http.ResponseWriter, r *http.Request, slug Slug, params GetPlaceMapParams)
@@ -2531,6 +2593,32 @@ func (siw *ServerInterfaceWrapper) GetPlace(w http.ResponseWriter, r *http.Reque
 	handler.ServeHTTP(w, r)
 }
 
+// GetPlaceFace operation middleware
+func (siw *ServerInterfaceWrapper) GetPlaceFace(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "slug" -------------
+	var slug Slug
+
+	err = runtime.BindStyledParameterWithOptions("simple", "slug", r.PathValue("slug"), &slug, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "slug", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetPlaceFace(w, r, slug)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // GetPlaceMap operation middleware
 func (siw *ServerInterfaceWrapper) GetPlaceMap(w http.ResponseWriter, r *http.Request) {
 
@@ -3317,6 +3405,7 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/places/{slug}", wrapper.GetPlace)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/places/{slug}/shape", wrapper.GetPlaceShape)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/places/{slug}/map", wrapper.GetPlaceMap)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/places/{slug}/face", wrapper.GetPlaceFace)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/games", wrapper.CreateGame)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/games/{gameId}", wrapper.GetGame)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/games/{gameId}/finish", wrapper.FinishGame)

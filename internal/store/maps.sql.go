@@ -228,6 +228,42 @@ func (q *Queries) MapCandidates(ctx context.Context, arg MapCandidatesParams) ([
 	return items, nil
 }
 
+const mapFaceSources = `-- name: MapFaceSources :many
+SELECT m.slug, coalesce(m.pick->>'frame', '')::text AS frame,
+       coalesce(array_agg(s.place_id) FILTER (WHERE s.place_id IS NOT NULL), '{}')::bigint[] AS place_ids
+FROM maps m
+LEFT JOIN map_sources s ON s.map_id = m.id
+WHERE m.slug = ANY ($1::text[])
+GROUP BY m.id
+`
+
+type MapFaceSourcesRow struct {
+	Slug     string
+	Frame    string
+	PlaceIds []int64
+}
+
+// What each map's face is made from: its places, and the map whose box it plays on (frame).
+func (q *Queries) MapFaceSources(ctx context.Context, slugs []string) ([]MapFaceSourcesRow, error) {
+	rows, err := q.db.Query(ctx, mapFaceSources, slugs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []MapFaceSourcesRow{}
+	for rows.Next() {
+		var i MapFaceSourcesRow
+		if err := rows.Scan(&i.Slug, &i.Frame, &i.PlaceIds); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const mapPlaceExtent = `-- name: MapPlaceExtent :one
 SELECT coalesce(ST_XMin(e), 0)::float8 AS west, coalesce(ST_YMin(e), 0)::float8 AS south,
        coalesce(ST_XMax(e), 0)::float8 AS east, coalesce(ST_YMax(e), 0)::float8 AS north

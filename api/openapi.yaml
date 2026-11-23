@@ -548,6 +548,28 @@ paths:
               schema: { $ref: "#/components/schemas/PlaceMap" }
         "404": { $ref: "#/components/responses/Error" }
 
+  /v1/places/{slug}/face:
+    get:
+      tags: [maps]
+      operationId: getPlaceFace
+      summary: A place's face, its picture wherever it is named (P1111 §5).
+      description: |
+        The place inside its parent: the parent's parts drawn in one frame, as
+        `/v1/places/{slug}/map` draws them, and which of them is the place. A region is shown
+        in Uzbekistan; a district or a town in its region (Tashkent's districts in Tashkent); a
+        city under the country that a region surrounds (Tashkent) in that region, drawn into
+        the hole the region leaves for it; Uzbekistan alone, all of it (`whole`). The same for
+        everyone and it never changes, so it is cached a day.
+      parameters:
+        - $ref: "#/components/parameters/Slug"
+      responses:
+        "200":
+          description: The face
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PlaceFace" }
+        "404": { $ref: "#/components/responses/Error" }
+
   /v1/games:
     post:
       tags: [games]
@@ -1323,10 +1345,18 @@ components:
 
     MyStreet:
       type: object
-      required: [name, rounds, learned]
+      required: [name, place, face, rounds, learned]
       properties:
         name: { $ref: "#/components/schemas/Text" }
-        place: { $ref: "#/components/schemas/Text" }
+        place:
+          $ref: "#/components/schemas/Text"
+          description: >-
+            The district the player met the street in: the place of their closest round there (the
+            round of `at`), as that round's result names it. A long street runs through several
+            districts; in a district's list (`place=`) it is that district.
+        face:
+          type: string
+          description: "That district by slug, for its picture (`/v1/places/{slug}/face`)."
         rounds: { type: integer, description: Rounds played on this street. }
         bestKm: { type: number, format: double, description: The closest guess; none when no pin was placed. }
         learned: { type: boolean, description: Guessed within 500 m at least once. }
@@ -1369,6 +1399,14 @@ components:
         ref: { type: string, description: "buy, refund: the item." }
         note: { type: string }
         at: { type: string, format: date-time }
+        place:
+          $ref: "#/components/schemas/Text"
+          description: >-
+            street: the district the player learned it in (as in their streets: their closest
+            round there; with none left, where most of its panoramas are). district: the district.
+        face:
+          type: string
+          description: "That district by slug, for its picture (`/v1/places/{slug}/face`)."
 
     Shop:
       type: object
@@ -1535,6 +1573,14 @@ components:
           type: array
           description: The slugs of the places the map is made of (the place map marks them).
           items: { type: string }
+        face:
+          type: string
+          description: >-
+            The place whose picture stands for the map (`/v1/places/{slug}/face`): its one
+            place, or the smallest place holding all of them (Uzbekistan for the historic
+            cities); a player's streets map, the place of the map it plays on. Absent when the
+            map has no places.
+          example: toshkent
 
     PlaceRef:
       description: A place, by name. On a map, the map's one place (or its parent).
@@ -1573,8 +1619,6 @@ components:
         name: { $ref: "#/components/schemas/Text" }
         map: { type: string }
         outline: { type: string, description: The outline as a small SVG. }
-        banner: { type: string, description: A photo of the place (Wikimedia Commons). }
-        bannerCredit: { type: string }
         panoramas: { type: integer, description: "Active panoramas, on the players' providers." }
         places:
           type: integer
@@ -1640,6 +1684,34 @@ components:
         name:
           $ref: "#/components/schemas/Text"
           description: The place's name (marks only; a shape's name is in its card).
+
+    PlaceFace:
+      description: |
+        A place's face: the parts of `frame` drawn in one frame (Web Mercator, the longer side
+        1000, y down, as `PlaceMap`), with the place filled: the shape whose `slug` is the
+        place's, or every shape when `whole`.
+      type: object
+      required: [slug, kind, name, frame, whole, width, height, shapes]
+      properties:
+        slug: { type: string, example: jondor-tumani }
+        kind:
+          type: string
+          enum: [country, region, district, city]
+        name: { $ref: "#/components/schemas/Text" }
+        frame:
+          $ref: "#/components/schemas/PlaceRef"
+          description: >-
+            The place whose parts are drawn: the parent (Buxoro viloyati round Jondor), the
+            region round a city under the country (Toshkent viloyati round Tashkent), the place
+            itself when `whole`.
+        whole:
+          type: boolean
+          description: "The place is the frame itself (Uzbekistan): every shape is it."
+        width: { type: number, format: double }
+        height: { type: number, format: double }
+        shapes:
+          type: array
+          items: { $ref: "#/components/schemas/PlaceMapShape" }
 
     CreateGame:
       type: object
@@ -1931,6 +2003,10 @@ components:
       properties:
         slug: { type: string }
         name: { $ref: "#/components/schemas/Text" }
+        face:
+          type: string
+          description: The place whose picture stands for the map, as in `MapSummary.face`.
+          example: toshkent
 
     Round:
       type: object
@@ -2073,14 +2149,9 @@ components:
         slug:
           type: string
           description: >-
-            The smallest place the round was in (a district, a city, a region). With `parent`
-            it is the place's picture: `GET /v1/places/{parent}/map` draws the parent's parts,
-            and this one is filled in. Missing in results saved before 2026-11-12.
+            The smallest place the round was in (a district, a city, a region), for its
+            picture (`/v1/places/{slug}/face`). Missing in results saved before 2026-11-12.
           example: bektemir-tumani
-        parent:
-          type: string
-          description: The place `slug` is a part of.
-          example: toshkent
 
     Metro:
       type: object

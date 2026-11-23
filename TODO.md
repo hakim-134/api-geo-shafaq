@@ -48,7 +48,7 @@ Toshkentdan Mo‘ynoqqacha
 
 """
 We need to have places, like citys, regions, and district, so user's can play they places they know, players can strat from narrow places and slowly get wider;
-- I also think place shuld have: name, banner, svg: banner it like photo of it of might be ignored, svg it like simple order of place so player can easly identfy place bu just looking at svg, case ppl more easly remember paterns
+- I also think place shuld have: name, svg: svg it like simple order of place so player can easly identfy place bu just looking at svg, case ppl more easly remember paterns (done as its face, the place inside its parent: `/v1/places/{slug}/face`; no banner, P1111 1.2)
 
 12. Leting ppl create theyir on sets and chanllanges like you can see it in geoguessr and worldguessr (make deeper research about this)
 

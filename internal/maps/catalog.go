@@ -41,6 +41,7 @@ type Map struct {
 	groups   map[int64][]int // group key → indices into Cands
 	Outline  string          // the place's outline SVG, for maps of one place
 	Places   []int64         // the map's places, largest first
+	Face     string          // the place whose picture stands for the map (Faces)
 	Owner    *uuid.UUID      // a player's map: who made it
 	Private  bool            // only its owner plays it
 }
@@ -121,7 +122,8 @@ type Catalog struct {
 
 	mu      sync.Mutex
 	entries map[string]*entry
-	making  sync.Mutex // one place map made at a time
+	faces   map[string]string // map slug → its face, for maps not in entries
+	making  sync.Mutex        // one place map made at a time
 }
 
 type entry struct {
@@ -130,7 +132,8 @@ type entry struct {
 }
 
 func NewCatalog(pool *pgxpool.Pool, reg *provider.Registry, tree *places.Cache) *Catalog {
-	return &Catalog{pool: pool, q: store.New(pool), reg: reg, tree: tree, ttl: 5 * time.Minute, entries: map[string]*entry{}}
+	return &Catalog{pool: pool, q: store.New(pool), reg: reg, tree: tree, ttl: 5 * time.Minute,
+		entries: map[string]*entry{}, faces: map[string]string{}}
 }
 
 // Official lists the menu's maps.
@@ -263,6 +266,13 @@ func (c *Catalog) load(ctx context.Context, slug string) (*Map, error) {
 	if len(mp) == 1 {
 		m.Outline = mp[0].OutlineSvg
 	}
+	tree, err := c.tree.Get(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if p := tree.Around(m.Places); p != nil {
+		m.Face = p.Slug
+	}
 	if m.Pick.StreetsOnly && pbox != (geo.BBox{}) {
 		// a street map opens on its streets, not on the whole city
 		const pad = 0.01
@@ -275,8 +285,71 @@ func (c *Catalog) load(ctx context.Context, slug string) (*Map, error) {
 			return nil, err
 		}
 		m.BBox, m.SizeKm = frame.BBox, frame.SizeKm
+		m.Face = frame.Face // nor the face: one missed street left would show its district
 	}
 	return m, nil
+}
+
+// Faces is each named map's face (Map.Face) without loading the maps, for lists of games:
+// the smallest place holding the map's places (Uzbekistan for the historic cities), or for a
+// map played on another's box, that map's face. A map without places has none (""). A map's
+// places never change while the server runs, so what is found is kept.
+func (c *Catalog) Faces(ctx context.Context, slugs []string) (map[string]string, error) {
+	return c.facesOf(ctx, slugs, 0)
+}
+
+func (c *Catalog) facesOf(ctx context.Context, slugs []string, depth int) (map[string]string, error) {
+	out := make(map[string]string, len(slugs))
+	var ask []string
+	c.mu.Lock()
+	for _, s := range slugs {
+		if f, ok := c.faces[s]; ok {
+			out[s] = f
+		} else if e := c.entries[s]; e != nil {
+			out[s] = e.m.Face
+		} else if !slices.Contains(ask, s) {
+			ask = append(ask, s)
+		}
+	}
+	c.mu.Unlock()
+	if len(ask) == 0 {
+		return out, nil
+	}
+	rows, err := c.q.MapFaceSources(ctx, ask)
+	if err != nil {
+		return nil, err
+	}
+	tree, err := c.tree.Get(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var frames []string
+	for _, r := range rows {
+		if r.Frame != "" {
+			frames = append(frames, r.Frame)
+		} else if p := tree.Around(r.PlaceIds); p != nil {
+			out[r.Slug] = p.Slug
+		} else {
+			out[r.Slug] = ""
+		}
+	}
+	if len(frames) > 0 && depth < 2 {
+		ff, err := c.facesOf(ctx, frames, depth+1)
+		if err != nil {
+			return nil, err
+		}
+		for _, r := range rows {
+			if r.Frame != "" {
+				out[r.Slug] = ff[r.Frame]
+			}
+		}
+	}
+	c.mu.Lock()
+	for _, r := range rows {
+		c.faces[r.Slug] = out[r.Slug]
+	}
+	c.mu.Unlock()
+	return out, nil
 }
 
 // Tree is the place tree the catalog works from.
@@ -286,5 +359,6 @@ func (c *Catalog) Tree(ctx context.Context) (*places.Tree, error) { return c.tre
 func (c *Catalog) Forget(slug string) {
 	c.mu.Lock()
 	delete(c.entries, slug)
+	delete(c.faces, slug)
 	c.mu.Unlock()
 }

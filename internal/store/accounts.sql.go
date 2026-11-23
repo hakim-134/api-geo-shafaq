@@ -424,24 +424,35 @@ func (q *Queries) MergeSessions(ctx context.Context, arg MergeSessionsParams) er
 }
 
 const missedStreets = `-- name: MissedStreets :many
-SELECT s.id, s.name_uz, s.name_ru,
-       pl.name_uz AS place_uz, pl.name_ru AS place_ru, pl.name_en AS place_en,
-       count(*)::int AS rounds,
-       coalesce(min(g.km), -1)::float8 AS best_km,
-       ((array_agg(ST_Y(coalesce(r.actual, p.pos)) ORDER BY g.km NULLS LAST))[1])::float8 AS at_lat,
-       ((array_agg(ST_X(coalesce(r.actual, p.pos)) ORDER BY g.km NULLS LAST))[1])::float8 AS at_lon,
-       ((array_agg(r.heading ORDER BY g.km NULLS LAST))[1])::float8 AS heading
-FROM guesses g
-JOIN rounds r ON r.game_id = g.game_id AND r.n = g.n
-JOIN panoramas p ON p.id = r.panorama_id
-JOIN streets s ON s.id = p.street_id
-JOIN places pl ON pl.id = s.place_id
-WHERE g.user_id = $1 AND g.guessed_at IS NOT NULL
-  AND EXISTS (SELECT 1 FROM panoramas a
-              WHERE a.street_id = s.id AND a.status = 'active' AND a.provider = ANY ($2::text[]))
-GROUP BY s.id, pl.id
-HAVING coalesce(min(g.km), 'Infinity'::float8) > $3::float8
-ORDER BY min(g.km) DESC NULLS FIRST, s.name_uz
+SELECT m.id, m.name_uz, m.name_ru,
+       d.slug AS place_slug, d.name_uz AS place_uz, d.name_ru AS place_ru, d.name_en AS place_en,
+       m.rounds, m.best_km, m.at_lat, m.at_lon, m.heading
+FROM (
+    SELECT s.id, s.name_uz, s.name_ru, s.place_id,
+           count(*)::int AS rounds,
+           coalesce(min(g.km), -1)::float8 AS best_km,
+           ((array_agg(p.id ORDER BY g.km NULLS LAST, g.game_id, g.n))[1])::bigint AS panorama_id,
+           ((array_agg(ST_Y(coalesce(r.actual, p.pos)) ORDER BY g.km NULLS LAST, g.game_id, g.n))[1])::float8 AS at_lat,
+           ((array_agg(ST_X(coalesce(r.actual, p.pos)) ORDER BY g.km NULLS LAST, g.game_id, g.n))[1])::float8 AS at_lon,
+           ((array_agg(r.heading ORDER BY g.km NULLS LAST, g.game_id, g.n))[1])::float8 AS heading
+    FROM guesses g
+    JOIN rounds r ON r.game_id = g.game_id AND r.n = g.n
+    JOIN panoramas p ON p.id = r.panorama_id
+    JOIN streets s ON s.id = p.street_id
+    WHERE g.user_id = $1 AND g.guessed_at IS NOT NULL
+      AND EXISTS (SELECT 1 FROM panoramas a
+                  WHERE a.street_id = s.id AND a.status = 'active' AND a.provider = ANY ($2::text[]))
+    GROUP BY s.id
+    HAVING coalesce(min(g.km), 'Infinity'::float8) > $3::float8
+) m
+CROSS JOIN LATERAL (
+    SELECT x.slug, x.name_uz, x.name_ru, x.name_en
+    FROM places x
+    WHERE x.id = ANY ((SELECT a.place_ids FROM panoramas a WHERE a.id = m.panorama_id) || m.place_id)
+    ORDER BY x.kind IN ('district', 'city') DESC, x.size_km
+    LIMIT 1
+) d
+ORDER BY nullif(m.best_km, -1) DESC NULLS FIRST, m.name_uz
 `
 
 type MissedStreetsParams struct {
@@ -451,21 +462,23 @@ type MissedStreetsParams struct {
 }
 
 type MissedStreetsRow struct {
-	ID      int64
-	NameUz  string
-	NameRu  string
-	PlaceUz string
-	PlaceRu string
-	PlaceEn string
-	Rounds  int32
-	BestKm  float64
-	AtLat   float64
-	AtLon   float64
-	Heading float64
+	ID        int64
+	NameUz    string
+	NameRu    string
+	PlaceSlug string
+	PlaceUz   string
+	PlaceRu   string
+	PlaceEn   string
+	Rounds    int32
+	BestKm    float64
+	AtLat     float64
+	AtLon     float64
+	Heading   float64
 }
 
 // The streets the player has been on and not learned, worst first: no pin at all, then the
 // farthest closest guess. A street whose panoramas are all gone can't be played, so it isn't here.
+// Its place is the district of the closest round, as in MyStreets.
 func (q *Queries) MissedStreets(ctx context.Context, arg MissedStreetsParams) ([]MissedStreetsRow, error) {
 	rows, err := q.db.Query(ctx, missedStreets, arg.UserID, arg.Providers, arg.LearnedKm)
 	if err != nil {
@@ -479,6 +492,7 @@ func (q *Queries) MissedStreets(ctx context.Context, arg MissedStreetsParams) ([
 			&i.ID,
 			&i.NameUz,
 			&i.NameRu,
+			&i.PlaceSlug,
 			&i.PlaceUz,
 			&i.PlaceRu,
 			&i.PlaceEn,
@@ -499,24 +513,36 @@ func (q *Queries) MissedStreets(ctx context.Context, arg MissedStreetsParams) ([
 }
 
 const myStreets = `-- name: MyStreets :many
-SELECT s.id, s.name_uz, s.name_ru,
-       pl.name_uz AS place_uz, pl.name_ru AS place_ru, pl.name_en AS place_en,
-       count(*)::int AS rounds,
-       coalesce(min(g.km), -1)::float8 AS best_km,
-       -- the closest round's real place and first heading: the street's panorama to open
-       ((array_agg(ST_Y(coalesce(r.actual, p.pos)) ORDER BY g.km NULLS LAST))[1])::float8 AS at_lat,
-       ((array_agg(ST_X(coalesce(r.actual, p.pos)) ORDER BY g.km NULLS LAST))[1])::float8 AS at_lon,
-       ((array_agg(r.heading ORDER BY g.km NULLS LAST))[1])::float8 AS heading
-FROM guesses g
-JOIN rounds r ON r.game_id = g.game_id AND r.n = g.n
-JOIN panoramas p ON p.id = r.panorama_id
-JOIN streets s ON s.id = p.street_id
-JOIN places pl ON pl.id = s.place_id
-WHERE g.user_id = $1 AND g.guessed_at IS NOT NULL
-  AND ($2::text IS NULL
-       OR (SELECT x.id FROM places x WHERE x.slug = $2) = ANY (p.place_ids))
-GROUP BY s.id, pl.id
-ORDER BY min(g.km) NULLS LAST, s.name_uz
+SELECT m.id, m.name_uz, m.name_ru,
+       d.slug AS place_slug, d.name_uz AS place_uz, d.name_ru AS place_ru, d.name_en AS place_en,
+       m.rounds, m.best_km, m.at_lat, m.at_lon, m.heading
+FROM (
+    SELECT s.id, s.name_uz, s.name_ru, s.place_id,
+           count(*)::int AS rounds,
+           coalesce(min(g.km), -1)::float8 AS best_km,
+           -- the closest round (ties: the first played), one order for every column of it
+           ((array_agg(p.id ORDER BY g.km NULLS LAST, g.game_id, g.n))[1])::bigint AS panorama_id,
+           ((array_agg(ST_Y(coalesce(r.actual, p.pos)) ORDER BY g.km NULLS LAST, g.game_id, g.n))[1])::float8 AS at_lat,
+           ((array_agg(ST_X(coalesce(r.actual, p.pos)) ORDER BY g.km NULLS LAST, g.game_id, g.n))[1])::float8 AS at_lon,
+           ((array_agg(r.heading ORDER BY g.km NULLS LAST, g.game_id, g.n))[1])::float8 AS heading
+    FROM guesses g
+    JOIN rounds r ON r.game_id = g.game_id AND r.n = g.n
+    JOIN panoramas p ON p.id = r.panorama_id
+    JOIN streets s ON s.id = p.street_id
+    WHERE g.user_id = $1 AND g.guessed_at IS NOT NULL
+      AND ($2::text IS NULL
+           OR (SELECT f.id FROM places f WHERE f.slug = $2) = ANY (p.place_ids))
+    GROUP BY s.id
+) m
+CROSS JOIN LATERAL (
+    -- that panorama's district or city; the street's own place when it has none
+    SELECT x.slug, x.name_uz, x.name_ru, x.name_en
+    FROM places x
+    WHERE x.id = ANY ((SELECT a.place_ids FROM panoramas a WHERE a.id = m.panorama_id) || m.place_id)
+    ORDER BY x.kind IN ('district', 'city') DESC, x.size_km
+    LIMIT 1
+) d
+ORDER BY nullif(m.best_km, -1) NULLS LAST, m.name_uz
 `
 
 type MyStreetsParams struct {
@@ -525,22 +551,26 @@ type MyStreetsParams struct {
 }
 
 type MyStreetsRow struct {
-	ID      int64
-	NameUz  string
-	NameRu  string
-	PlaceUz string
-	PlaceRu string
-	PlaceEn string
-	Rounds  int32
-	BestKm  float64
-	AtLat   float64
-	AtLon   float64
-	Heading float64
+	ID        int64
+	NameUz    string
+	NameRu    string
+	PlaceSlug string
+	PlaceUz   string
+	PlaceRu   string
+	PlaceEn   string
+	Rounds    int32
+	BestKm    float64
+	AtLat     float64
+	AtLon     float64
+	Heading   float64
 }
 
-// Every street the player has been on: its district or city, how many rounds, and the closest
-// guess (-1 when every round there went without a pin). Closest first. With @place only the rounds
-// inside that place, as its progress counts them (a long street runs through several tumanlar).
+// Every street the player has been on: how many rounds, the closest guess (-1 when every round
+// there went without a pin), and that round's real place and first heading: the panorama the
+// street's row opens. Closest first. With @place only the rounds inside that place, as its
+// progress counts them (a long street runs through several tumanlar). The street's place is the
+// district the player met it in: the one of that closest round, as its result names it (the
+// smallest place its panorama is in, a mahalla never), not the city the street belongs to.
 func (q *Queries) MyStreets(ctx context.Context, arg MyStreetsParams) ([]MyStreetsRow, error) {
 	rows, err := q.db.Query(ctx, myStreets, arg.UserID, arg.Place)
 	if err != nil {
@@ -554,6 +584,7 @@ func (q *Queries) MyStreets(ctx context.Context, arg MyStreetsParams) ([]MyStree
 			&i.ID,
 			&i.NameUz,
 			&i.NameRu,
+			&i.PlaceSlug,
 			&i.PlaceUz,
 			&i.PlaceRu,
 			&i.PlaceEn,

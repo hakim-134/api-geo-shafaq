@@ -8,6 +8,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -46,6 +47,7 @@ type Server struct {
 
 	livePages pageCount
 	mapCache  mapCache
+	faces     faceCache
 
 	cookieName   string
 	cookieSecure bool
@@ -104,6 +106,13 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(v)
+}
+
+// writeCached sends a JSON answer that is the same for everyone, for browsers to keep a while.
+func writeCached(w http.ResponseWriter, b []byte, maxAgeSec int) {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "public, max-age="+strconv.Itoa(maxAgeSec))
+	_, _ = w.Write(b)
 }
 
 func writeError(w http.ResponseWriter, status int, code string) {

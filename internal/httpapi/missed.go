@@ -42,7 +42,7 @@ func (s *Server) GetMissedStreets(w http.ResponseWriter, r *http.Request) {
 	out := oapi.MissedStreets{Map: maps.MissMap(u.ID), Streets: make([]oapi.MyStreet, len(rows))}
 	for i, row := range rows {
 		place := text(places.NewText(row.PlaceUz, row.PlaceRu, row.PlaceEn))
-		out.Streets[i] = oapi.MyStreet{Name: text(places.NewText(row.NameUz, row.NameRu, "")), Place: &place, Rounds: int(row.Rounds)}
+		out.Streets[i] = oapi.MyStreet{Name: text(places.NewText(row.NameUz, row.NameRu, "")), Place: place, Face: row.PlaceSlug, Rounds: int(row.Rounds)}
 		if row.BestKm >= 0 {
 			km := row.BestKm
 			out.Streets[i].BestKm = &km

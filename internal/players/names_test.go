@@ -60,4 +60,10 @@ func TestGuestNames(t *testing.T) {
 			t.Errorf("%s: %q does not pass the name filter: %v", a, name, err)
 		}
 	}
+	// yellow on the gold coin is a blank coin: these stay out (migration 00017)
+	for _, a := range []string{"🌙", "⭐", "🍋", "🌽", "🌻"} {
+		if avatarWords[a] != "" {
+			t.Errorf("%s vanishes on the gold coin", a)
+		}
+	}
 }

@@ -154,6 +154,16 @@ the name per child, simplified together (`ST_CoverageSimplify`) so neighbours sh
 `?mark=a,b` adds other places as points (the historic cities' stars). The same for everyone, so
 it caches.
 
+`GET /v1/places/{slug}/face` is a place's face, its picture wherever it is named (P1111 §5):
+the same drawing of its parent's parts, and which one is the place. A region in Uzbekistan, a
+district or town in its region, Tashkent city in Toshkent viloyati (a city under the country
+that a region surrounds is drawn into the hole the region leaves for it), Uzbekistan alone
+(`whole`). Drawn once per place and kept in memory; browsers keep it a day. Every map names its
+face too (`face` on `MapSummary` and `MapRef`: the smallest place holding its places), and so
+does every street a player has been on (`MyStreet.face`, and a street's `WalletEntry.face`): not
+the city the street belongs to but the district they met it in, the one of their closest round
+there (with no round of theirs, the district most of its panoramas are in).
+
 `GET /v1/places/{slug}` (start at `uzbekistan`) is the place picker: the place, where it is,
 and the places inside it, each with its panoramas on the players' providers and the player's
 progress. Progress counts what the place is about: named streets (Tashkent and its districts),

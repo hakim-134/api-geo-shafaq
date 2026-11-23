@@ -1,4 +1,5 @@
-Copyright 2022 The Unbounded Project Authors (https://github.com/googlefonts/unbounded)
+Copyright 2016 The Rounded M+ Project Authors (https://github.com/google/fonts/tree/main/ofl/mplusrounded1c)
+Subset here to Latin, Latin Extended and Cyrillic, for the challenge card.
 
 This Font Software is licensed under the SIL Open Font License, Version 1.1.
 This license is copied below, and is also available with a FAQ at:
