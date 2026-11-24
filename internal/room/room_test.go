@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"reflect"
 	"sync"
 	"testing"
 	"time"
@@ -178,6 +179,58 @@ func (f *fixture) open(rs *rules.Rules) (*Room, []*page) {
 		pages = append(pages, p)
 	}
 	return rm, pages
+}
+
+func TestRenameReachesBothPlayers(t *testing.T) {
+	ctx := t.Context()
+	hub := &Hub{
+		Store: &memStore{m: map[string][]byte{}}, Games: &game.Service{Reg: &provider.Registry{}},
+		rooms: map[string]*Room{},
+		Encode: func(v *View) []byte {
+			data, err := json.Marshal(v)
+			must(t, err)
+			return data
+		},
+	}
+	rm := &Room{hub: hub, st: state{Code: "ABCDE", Phase: Lobby}, conns: map[Conn]uuid.UUID{}}
+	hub.rooms[rm.st.Code] = rm
+	guest := Who{ID: uuid.New(), Name: "Ukki 42", Avatar: "🦉", Guest: true}
+	friend := Who{ID: uuid.New(), Name: "Ali", Avatar: "🐼"}
+	pages := map[uuid.UUID]*page{guest.ID: {}, friend.ID: {}}
+	must(t, rm.Join(ctx, pages[guest.ID], guest))
+	must(t, rm.Join(ctx, pages[friend.ID], friend))
+
+	checkRename := func(name, avatar string) {
+		t.Helper()
+		want := map[uuid.UUID]map[string]any{}
+		for id := range pages {
+			v := rm.View(id)
+			v.Ver++
+			v.Players[0].Name, v.Players[0].Avatar = name, avatar
+			var message map[string]any
+			must(t, json.Unmarshal(hub.Encode(v), &message))
+			want[id] = message
+		}
+		hub.Rename(ctx, guest.ID, name, avatar)
+		for id, page := range pages {
+			if !reflect.DeepEqual(page.last, want[id]) {
+				t.Fatalf("%s: player %s got %+v, want %+v", rm.st.Phase, id, page.last, want[id])
+			}
+		}
+	}
+	checkRename("Aziza", "🦊")
+
+	rm.st.Phase = Playing
+	rm.st.Round = &Round{N: 1, In: map[uuid.UUID]bool{guest.ID: true, friend.ID: true},
+		Seen: map[uuid.UUID]bool{}, Guesses: map[uuid.UUID]*Guess{}}
+	must(t, rm.Guess(ctx, guest.ID, 1, &geo.Point{Lat: 41, Lon: 69}))
+	checkRename("Lola", "🐼")
+
+	rm.st.Phase = Final
+	rm.player(guest.ID).Total = 4200
+	rm.st.Done = []*Done{{Round: rm.st.Round, Scores: []Score{{Player: guest.ID, Score: 4200}, {Player: friend.ID}}}}
+	rm.st.Round = nil
+	checkRename("Malika", "🦉")
 }
 
 func TestRoomPlaysAGameAndEveryoneKeepsIt(t *testing.T) {

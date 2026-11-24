@@ -239,6 +239,9 @@ func (s *Server) UpdateProfile(w http.ResponseWriter, r *http.Request) {
 		fail(w, r, err)
 		return
 	}
+	if s.rooms != nil {
+		s.rooms.Rename(context.WithoutCancel(r.Context()), nu.ID, nu.Name, nu.Avatar)
+	}
 	s.writeMe(w, r, &nu)
 }
 

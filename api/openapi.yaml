@@ -364,6 +364,7 @@ paths:
       description: |
         Names are 2–24 characters (letters, digits, spaces, `_ - .`) and pass the name filter
         (uz/ru/en); `bad_name` otherwise. The avatar is one of `AppConfig.avatars`.
+        A player in a room is renamed there at once.
       requestBody:
         required: true
         content:

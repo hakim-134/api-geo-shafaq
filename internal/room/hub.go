@@ -194,6 +194,20 @@ func (h *Hub) all() []*Room {
 	return out
 }
 
+// Rename updates the player's profile in every live room that still lists them.
+func (h *Hub) Rename(ctx context.Context, userID uuid.UUID, name, avatar string) {
+	for _, r := range h.all() {
+		r.mu.Lock()
+		if !r.gone {
+			if p := r.player(userID); p != nil {
+				p.Name, p.Avatar = name, avatar
+				r.changed(ctx)
+			}
+		}
+		r.mu.Unlock()
+	}
+}
+
 // Run ticks every room until ctx ends.
 func (h *Hub) Run(ctx context.Context) {
 	t := time.NewTicker(tickEvery)
